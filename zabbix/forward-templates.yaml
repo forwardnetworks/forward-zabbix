@@ -1,0 +1,109 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 07d84969adc24ee0aefae16b3d23d3ab
+      name: Templates/Network devices
+  templates:
+    - uuid: 30583134f4624a11ba133a5ac92610da
+      template: Forward Device
+      name: Forward Device
+      description: |
+        Values pushed by fwdzbx for a device that Forward models. Items are trapper items:
+        nothing here polls the device. Link this template to hosts created by `fwdzbx sync-inventory`.
+      groups:
+        - name: Templates/Network devices
+      items:
+        - uuid: b0107287f4244a14a55e1dea953b5aee
+          name: 'Forward: collection result'
+          type: TRAP
+          key: fwd.collection.result
+          value_type: TEXT
+          trends: '0'
+          history: 14d
+          description: 'Forward''s last collection result for this device: "completed", or "<stage>:<error>" such as collectionFailed:AUTHENTICATION_FAILED.'
+          tags:
+            - tag: component
+              value: forward
+          triggers:
+            - uuid: c7d5473426d74cbd9d5cfcd2a082c89a
+              expression: 'last(/Forward Device/fwd.collection.result)<>"completed" and length(last(/Forward Device/fwd.collection.result))>0'
+              name: 'Forward could not collect {HOST.NAME}: {ITEM.LASTVALUE}'
+              priority: WARNING
+              description: 'Forward''s newest snapshot has no usable data for this device, so every Forward check about it is blind.'
+              tags:
+                - tag: scope
+                  value: availability
+    - uuid: 7c31c832b0b8432d9cd3cbb309b2518f
+      template: Forward Network
+      name: Forward Network
+      description: |
+        Network-level values pushed by fwdzbx onto a host that stands for one Forward network.
+        The host has no interface; it exists only to carry these trapper items.
+      groups:
+        - name: Templates/Network devices
+      macros:
+        - macro: '{$FWD.SNAPSHOT.MAX_AGE}'
+          value: 36h
+          description: 'Raise a problem when no push reports a newer snapshot for this long.'
+        - macro: '{$FWD.CHECK_FAILURE.WINDOW}'
+          value: 6h
+          description: 'A check-failure problem clears when Forward reports no failure for this long (evaluated on a timer with nodata(); a count() window would never age out). Forward sends failures, never recoveries, so set this to a little over your collection interval.'
+      items:
+        - uuid: 13150c76b4ff40629d68624406af51c4
+          name: 'Forward: devices modeled'
+          type: TRAP
+          key: fwd.devices.total
+          tags: [{tag: component, value: forward}]
+        - uuid: 76679ec51337409d9f5bf67485a4c214
+          name: 'Forward: devices with collection failures'
+          type: TRAP
+          key: fwd.devices.collection_failed
+          tags: [{tag: component, value: forward}]
+          triggers:
+            - uuid: 4e06854561fa43f3bcb0b480434a28d1
+              expression: 'last(/Forward Network/fwd.devices.collection_failed)>0'
+              name: 'Forward could not collect {ITEM.LASTVALUE} device(s)'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: availability
+        - uuid: 74da57250fa3438f81933adc06488482
+          name: 'Forward: newest snapshot id'
+          type: TRAP
+          key: fwd.snapshot.id
+          value_type: TEXT
+          trends: '0'
+          tags: [{tag: component, value: forward}]
+        - uuid: fc87cdf01c994268af55cfb883e13e03
+          name: 'Forward: newest snapshot time'
+          type: TRAP
+          key: fwd.snapshot.time
+          units: unixtime
+          tags: [{tag: component, value: forward}]
+          triggers:
+            - uuid: cb42e0bcf348445492dcfe122a2e22fb
+              expression: 'now()-last(/Forward Network/fwd.snapshot.time)>{$FWD.SNAPSHOT.MAX_AGE}'
+              name: 'Forward has no new snapshot in {$FWD.SNAPSHOT.MAX_AGE}'
+              priority: AVERAGE
+              description: 'Collection may have stopped: check the collector and the collection schedule in Forward.'
+              tags:
+                - tag: scope
+                  value: freshness
+        - uuid: cda505d94f8b41ce84f670cb024b31fd
+          name: 'Forward: check failure'
+          type: TRAP
+          key: fwd.check.failure
+          value_type: TEXT
+          trends: '0'
+          history: 14d
+          description: 'The last intent or NQE check failure Forward reported by webhook: "<check>: <failure type> [snapshot N]".'
+          tags: [{tag: component, value: forward}]
+          triggers:
+            - uuid: 7bd858f0563740c2abe8646fde347800
+              expression: 'nodata(/Forward Network/fwd.check.failure,{$FWD.CHECK_FAILURE.WINDOW})=0'
+              name: 'Forward check failing: {ITEM.LASTVALUE}'
+              priority: AVERAGE
+              description: 'Forward reported a failing check in its newest snapshot. Clears when no failure is reported for {$FWD.CHECK_FAILURE.WINDOW}.'
+              tags:
+                - tag: scope
+                  value: compliance

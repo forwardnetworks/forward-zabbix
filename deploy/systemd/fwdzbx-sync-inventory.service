@@ -1,0 +1,26 @@
+[Unit]
+Description=Sync Forward devices into Zabbix hosts (fwdzbx)
+Documentation=https://github.com/forwardnetworks/forward-zabbix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/fwdzbx/fwdzbx.env
+ExecStart=/opt/fwdzbx/bin/fwdzbx sync-inventory --apply
+
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077

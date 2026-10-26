@@ -1,0 +1,32 @@
+[Unit]
+Description=Forward webhook receiver for Zabbix (fwdzbx)
+Documentation=https://github.com/forwardnetworks/forward-zabbix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/fwdzbx/fwdzbx.env
+# Listens on loopback; put a reverse proxy or tunnel with TLS in front of it. Never expose it as plain HTTP.
+ExecStart=/opt/fwdzbx/bin/fwdzbx serve --listen 127.0.0.1:8020 --path /forward-webhook
+Restart=on-failure
+RestartSec=5
+
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# Throwaway Zabbix 7.0 LTS for the Forward PoC. Not for production.
+name: fwdzbx
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZBX_DB_PASSWORD:?set in .env}
+      POSTGRES_DB: zabbix
+    volumes: [dbdata:/var/lib/postgresql/data]
+  server:
+    image: zabbix/zabbix-server-pgsql:alpine-7.0-latest
+    depends_on: [db]
+    environment:
+      DB_SERVER_HOST: db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZBX_DB_PASSWORD}
+      POSTGRES_DB: zabbix
+    ports: ["127.0.0.1:${ZBX_TRAPPER_PORT:-10051}:10051"]
+  web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-7.0-latest
+    depends_on: [server]
+    environment:
+      ZBX_SERVER_HOST: server
+      DB_SERVER_HOST: db
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: ${ZBX_DB_PASSWORD}
+      POSTGRES_DB: zabbix
+      PHP_TZ: America/New_York
+    ports: ["127.0.0.1:${ZBX_WEB_PORT:-8081}:8080"]
+volumes:
+  dbdata:
