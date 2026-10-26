@@ -15,7 +15,7 @@ import (
 // of vendor templates).
 var historyKeys = []string{"net.if.in[", "net.if.out[", "net.if.in.errors[", "net.if.in.discards[",
 	"net.if.out.errors[", "net.if.out.discards[", "net.if.speed[", "net.if.type[", "system.net.uptime[",
-	"system.cpu.util", "vm.memory.util"}
+	"system.cpu.util", "vm.memory.util", "fwd.if.", "fwd.cpu.", "fwd.mem.", "fwd.uptime"}
 
 type historyItem struct {
 	ItemID    string                        `json:"itemid"`
@@ -83,10 +83,66 @@ func (c *Client) DeviceHistory(ctx context.Context, host string, from, to time.T
 		}
 		return byIface[name]
 	}
+	var cores [][]perf.Sample
+	storage := map[string]perf.StorageRow{}
+	for _, it := range items { // the template in zabbix/forward-performance-template.yaml: raw counters, preferred
+		s := series[it.ItemID]
+		last, _ := strconv.ParseFloat(it.LastValue, 64)
+		switch {
+		case strings.HasPrefix(it.Key, "fwd.uptime"):
+			d.Uptime = s
+		case strings.HasPrefix(it.Key, "fwd.cpu.core["):
+			cores = append(cores, s)
+		case strings.HasPrefix(it.Key, "fwd.mem."):
+			kind, descr := keyKindAndParam(it.Key)
+			row := storage[descr]
+			switch kind {
+			case "unit":
+				row.Unit = s
+			case "size":
+				row.Size = s
+			case "used":
+				row.Used = s
+			}
+			storage[descr] = row
+		case strings.HasPrefix(it.Key, "fwd.if.") && !strings.HasPrefix(it.Key, "fwd.if.walk") && !strings.HasPrefix(it.Key, "fwd.if.discovery"):
+			ser := get(it.iface())
+			ser.Cumulative = true
+			switch kind, _ := keyKindAndParam(it.Key); kind {
+			case "in.octets":
+				ser.InBps = s
+			case "out.octets":
+				ser.OutBps = s
+			case "in.errors":
+				ser.InErrors = s
+			case "out.errors":
+				ser.OutErrors = s
+			case "in.discards":
+				ser.InDiscards = s
+			case "out.discards":
+				ser.OutDiscards = s
+			case "speed":
+				ser.SpeedBps = last * 1e6 // ifHighSpeed is Mbit/s
+			case "type":
+				ser.IfType = uint32(last)
+			}
+		}
+	}
+	if len(cores) > 0 {
+		d.CPU = perf.AverageSeries(cores)
+	}
+	if len(storage) > 0 {
+		d.Memory = perf.Memory(storage)
+	}
 	for _, it := range items {
+		if strings.HasPrefix(it.Key, "fwd.") {
+			continue
+		}
 		s := series[it.ItemID]
 		last, _ := strconv.ParseFloat(it.LastValue, 64)
 		switch name := it.iface(); {
+		case get(name).Cumulative && strings.HasPrefix(it.Key, "net.if."):
+			// the template's raw counters are already in use for this interface
 		case strings.HasPrefix(it.Key, "net.if.in["):
 			get(name).InBps = s
 		case strings.HasPrefix(it.Key, "net.if.out["):
@@ -103,7 +159,7 @@ func (c *Client) DeviceHistory(ctx context.Context, host string, from, to time.T
 			get(name).SpeedBps = last // a rarely-changing item: Zabbix may store no sample in a short window
 		case strings.HasPrefix(it.Key, "net.if.type["):
 			get(name).IfType = uint32(last)
-		case strings.HasPrefix(it.Key, "system.net.uptime["):
+		case strings.HasPrefix(it.Key, "system.net.uptime[") && len(d.Uptime) == 0:
 			d.Uptime = s
 		case strings.HasPrefix(it.Key, "system.cpu.util") && len(d.CPU) == 0:
 			d.CPU = s
@@ -122,4 +178,21 @@ func (c *Client) DeviceHistory(ctx context.Context, host string, from, to time.T
 		d.Ifaces = append(d.Ifaces, *byIface[n])
 	}
 	return d, nil
+}
+
+// keyKindAndParam splits "fwd.if.in.octets[eth1]" into the part after the family prefix ("in.octets") and the
+// bracketed parameter ("eth1"). The family is fwd.if., fwd.cpu. or fwd.mem.
+func keyKindAndParam(key string) (kind, param string) {
+	open := strings.Index(key, "[")
+	head := key
+	if open >= 0 {
+		head, param = key[:open], strings.TrimSuffix(key[open+1:], "]")
+		param = strings.Trim(param, `"`)
+	}
+	for _, fam := range []string{"fwd.if.", "fwd.cpu.", "fwd.mem."} {
+		if strings.HasPrefix(head, fam) {
+			return strings.TrimPrefix(head, fam), param
+		}
+	}
+	return head, param
 }

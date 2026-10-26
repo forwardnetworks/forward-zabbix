@@ -2,7 +2,9 @@ package perf
 
 import (
 	"math"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -19,8 +21,10 @@ type Series struct {
 	InBps, OutBps          []Sample
 	InErrors, InDiscards   []Sample // per second
 	OutErrors, OutDiscards []Sample // per second
-	SpeedBps               float64
-	IfType                 uint32
+	// Cumulative says the six traffic series are already counters (octets, packets) as polled, not rates.
+	Cumulative bool
+	SpeedBps   float64
+	IfType     uint32
 }
 
 // Device is the host-level history for one device.
@@ -110,8 +114,14 @@ func Build(d Device) []DevicePerf {
 	}
 	var cs []cum
 	for _, s := range d.Ifaces {
-		cs = append(cs, cum{s.Name, cumulative(s.InBps, 1.0/8), cumulative(s.OutBps, 1.0/8),
-			cumulative(s.InErrors, 1), cumulative(s.InDiscards, 1), cumulative(s.OutErrors, 1), cumulative(s.OutDiscards, 1),
+		c := func(r []Sample, scale float64) []Sample {
+			if s.Cumulative {
+				return r
+			}
+			return cumulative(r, scale)
+		}
+		cs = append(cs, cum{s.Name, c(s.InBps, 1.0/8), c(s.OutBps, 1.0/8),
+			c(s.InErrors, 1), c(s.InDiscards, 1), c(s.OutErrors, 1), c(s.OutDiscards, 1),
 			uint32(s.SpeedBps / 1e6), s.IfType})
 	}
 	out := make([]DevicePerf, 0, len(ticks))
@@ -139,6 +149,82 @@ func Build(d Device) []DevicePerf {
 				OutErrors: u64(oe), OutDiscards: u64(od), SpeedMbps: c.speed, InterfaceType: c.ifType}
 		}
 		out = append(out, dp)
+	}
+	return out
+}
+
+// StorageRow is one hrStorageTable row's history: allocation unit (bytes), size and used (in units).
+type StorageRow struct{ Unit, Size, Used []Sample }
+
+var (
+	ramRow    = regexp.MustCompile(`(?i)^(ram|physical memory|memory)$`)
+	cacheRows = regexp.MustCompile(`(?i)\((buffers|cache|cached)\)|^(buffers|cached)$`)
+)
+
+// Memory returns the fraction of RAM in use over time (0..1) from hrStorage rows keyed by hrStorageDescr. Linux-based
+// network operating systems report page cache and buffers as "used"; those rows ("RAM (Cache)", "RAM (Buffers)") are
+// subtracted so the figure matches what the device itself calls memory use. With no RAM row it returns nil.
+func Memory(rows map[string]StorageRow) []Sample {
+	var ram StorageRow
+	var found bool
+	for d, r := range rows {
+		if ramRow.MatchString(strings.TrimSpace(d)) {
+			ram, found = r, true
+		}
+	}
+	if !found {
+		return nil
+	}
+	var out []Sample
+	for _, u := range ram.Used {
+		unit, ok1 := at(ram.Unit, u.T)
+		size, ok2 := at(ram.Size, u.T)
+		if !ok1 || !ok2 || size <= 0 {
+			continue
+		}
+		used := u.V * unit
+		for d, r := range rows {
+			if !cacheRows.MatchString(strings.TrimSpace(d)) {
+				continue
+			}
+			cu, _ := at(r.Unit, u.T)
+			if v, ok := at(r.Used, u.T); ok {
+				used -= v * cu
+			}
+		}
+		f := used / (size * unit)
+		out = append(out, Sample{u.T, math.Min(math.Max(f, 0), 1) * 100}) // percent, as Build expects
+	}
+	return out
+}
+
+// AverageSeries averages several series (for example one per CPU core) at each timestamp that any has a sample,
+// using each series' latest value at or before that time.
+func AverageSeries(series [][]Sample) []Sample {
+	var times []int64
+	seen := map[int64]bool{}
+	for _, s := range series {
+		for _, x := range s {
+			if !seen[x.T] {
+				seen[x.T] = true
+				times = append(times, x.T)
+			}
+		}
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	var out []Sample
+	for _, t := range times {
+		var sum float64
+		var n int
+		for _, s := range series {
+			if v, ok := at(s, t); ok {
+				sum += v
+				n++
+			}
+		}
+		if n > 0 {
+			out = append(out, Sample{t, sum / float64(n)})
+		}
 	}
 	return out
 }

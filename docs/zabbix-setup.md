@@ -54,3 +54,7 @@ problem; a problem that already has a `[Forward]` message is skipped.
 ## Ownership rules
 
 See [Usage](usage.md#ownership-rules).
+
+## Performance template (optional)
+
+`zabbix/forward-performance-template.yaml` adds the `Forward Performance by SNMP` template for feeding Forward's performance views; see [Performance data](performance.md). Import it the same way, link it to hosts with an SNMP interface, and set the host macro `{$SNMP_COMMUNITY}`. Macros: `{$FWD.PERF.INTERVAL}` (default `5m`), `{$FWD.PERF.IFNAME.MATCHES}` / `.NOT_MATCHES`, `{$FWD.PERF.MEM.MATCHES}`. Tested on Zabbix 7.0.32 against one Arista cEOS lab device: 72 items discovered, none in error.

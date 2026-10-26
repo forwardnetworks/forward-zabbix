@@ -9,9 +9,17 @@ second SNMP collection.
 fwdzbx --network-id <id> export-perf --device <forward device name> --minutes 180 -o perf.pb
 ```
 
-It reads the device's Zabbix SNMP history (the stock "Network Generic Device by SNMP" template), rebuilds
-cumulative interface counters from Zabbix's stored rates (Forward diffs counters itself), and writes a
-`PerfDataPB`.
+It reads the device's Zabbix SNMP history and writes a `PerfDataPB`. Two sources work:
+
+- **Recommended: the `Forward Performance by SNMP` template** (`zabbix/forward-performance-template.yaml`, import
+  it like the others). It polls the raw cumulative counters Forward wants (ifHCInOctets/OutOctets, errors,
+  discards), interface speed and type, uptime, CPU (HOST-RESOURCES-MIB, averaged over cores) and memory
+  (hrStorage RAM, minus the buffer and cache rows that Linux-based network operating systems count as used).
+  All values of a cycle come from one SNMP walk, so they share a timestamp. Nothing is lost to rounding.
+- **Fallback: the stock "Network Generic Device by SNMP" template.** It stores rates, so the tool rebuilds counters
+  from them; small error and discard rates are lost to integer rounding, and there is no CPU or memory.
+
+If a host has both, the Forward template's items are used.
 
 ## What is verified
 
@@ -27,10 +35,10 @@ cumulative interface counters from Zabbix's stored rates (Forward diffs counters
 - **No upload has been made.** Forward accepts uploads only from a collector registered in the network's
   organization, and mixing this with Forward's own SNMP collection on the same network would distort rates.
   Check that first, and get approval, before any upload.
-- Zabbix stores rates, not counters. Reconstruction is lossy for very small error and discard rates, because
-  integer items truncate them. A dedicated raw-counter template would be lossless.
-- CPU and memory appear only if the host has `system.cpu.util` / `vm.memory.util` items; the stock generic
-  template has none. Values are sent as fractions 0..1, matching Forward's thresholds.
+- CPU and memory come from HOST-RESOURCES-MIB, which not every device supports (devices without it simply send
+  none). Values are sent as fractions 0..1, matching Forward's thresholds. Only a Linux-based Arista device has been
+  checked, and the memory figure subtracts cache and buffers; other platforms' rows may need a different
+  `{$FWD.PERF.MEM.MATCHES}`.
 - The cadence of ticks follows the interface polling cycle; behaviour with irregular polling is untested.
 
 ## Uploading

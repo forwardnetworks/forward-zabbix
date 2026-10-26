@@ -97,3 +97,37 @@ func TestWithNoTrafficHistoryTicksFallBackToUptime(t *testing.T) {
 		t.Fatalf("got %d ticks", len(got))
 	}
 }
+
+// Linux-based devices count page cache and buffers as used. Worked from the definitions: RAM size 1000 units of
+// 1024 B, used 900, of which 300 is cache and 100 buffers => (900-300-100)/1000 = 50%.
+func TestMemorySubtractsBuffersAndCacheFromRAMUsed(t *testing.T) {
+	row := func(unit, size, used float64) StorageRow {
+		return StorageRow{Unit: []Sample{{0, unit}}, Size: []Sample{{0, size}}, Used: []Sample{{60, used}}}
+	}
+	got := Memory(map[string]StorageRow{
+		"RAM": row(1024, 1000, 900), "RAM (Cache)": row(1024, 1000, 300), "RAM (Buffers)": row(1024, 1000, 100),
+		"Flash": row(4096, 10, 10), "RAM (Unavailable)": row(1024, 1000, 999),
+	})
+	if len(got) != 1 || got[0].V != 50 {
+		t.Fatalf("%+v", got)
+	}
+	if Memory(map[string]StorageRow{"Flash": row(1, 1, 1)}) != nil {
+		t.Fatal("a device with no RAM row must yield no memory series")
+	}
+}
+
+func TestAverageSeriesAveragesCoresAtEachCycle(t *testing.T) {
+	got := AverageSeries([][]Sample{{{0, 10}, {60, 30}}, {{0, 20}, {60, 50}}})
+	if len(got) != 2 || got[0].V != 15 || got[1].V != 40 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestCumulativeSeriesAreUsedAsPolledNotIntegrated(t *testing.T) {
+	d := Device{Name: "r", Uptime: []Sample{{0, 1}, {60, 2}},
+		Ifaces: []Series{{Name: "e1", Cumulative: true, InBps: []Sample{{0, 5000}, {60, 9000}}, OutBps: []Sample{{0, 1}, {60, 2}}}}}
+	got := Build(d)
+	if got[0].Interfaces["e1"].InOctets != 5000 || got[1].Interfaces["e1"].InOctets != 9000 {
+		t.Fatalf("%+v", got)
+	}
+}

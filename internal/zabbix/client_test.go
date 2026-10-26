@@ -92,3 +92,16 @@ func TestPushValuesUsesTrapperFramingAndParsesCounts(t *testing.T) {
 		t.Fatalf("first item = %v", first)
 	}
 }
+
+func TestKeyKindAndParam(t *testing.T) {
+	for key, want := range map[string][2]string{
+		"fwd.if.in.octets[Ethernet1]":  {"in.octets", "Ethernet1"},
+		"fwd.mem.used[RAM (Cache)]":    {"used", "RAM (Cache)"},
+		`fwd.mem.size["RAM, buffers"]`: {"size", "RAM, buffers"},
+		"fwd.cpu.core[7]":              {"core", "7"},
+	} {
+		if k, p := keyKindAndParam(key); k != want[0] || p != want[1] {
+			t.Errorf("%s -> %q %q, want %v", key, k, p, want)
+		}
+	}
+}
