@@ -50,5 +50,6 @@ fwdzbx --network-id <id> upload-perf --device <name> --minutes 15 --apply   # se
 - The payload timestamp is the send time, because Forward measures collector clock lag against it.
 - Repeated uploads of overlapping windows rewrite the same rows (per the SDK maintainers, untested). There is no
   scheduler or watermark yet, so this is a manual PoC step.
-- **Not yet run with `--apply` against Forward.** Forward-side performance collection settings for the network may
-  also need to be enabled for the views to show the data; not checked.
+- **Not yet run with `--apply` against Forward.** The Go SDK maintainers say Forward's own SNMP performance collection
+  does not need to be enabled for an upload to be accepted; that is their reading of the code, not something this
+  project has seen work yet.
