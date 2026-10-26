@@ -21,6 +21,7 @@ Against a hosted Forward network of 26 devices, collected by a local collector, 
 - The receiver ran under systemd user-service sandboxing and as a hardened container; both answered 401
   without credentials and pushed status for an event.
 - `examples/pipeline_gate.py` and the `--json` / `--fail-on-gap` forms were run.
+- `export-status` output was uploaded to Forward as a data file, attached to one network, and after the next snapshot an NQE query joining it to `network.devices` returned all 26 devices with their Zabbix values.
 - The screenshots were produced from a clean Zabbix by `examples/synthetic_demo.py` with made-up devices.
 
 ## Not verified

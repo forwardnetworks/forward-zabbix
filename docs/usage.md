@@ -18,7 +18,7 @@ All commands take `--network-id ID` (or `FORWARD_NETWORK_ID`) and `--json`. Comm
 
 Compares the two inventories and reports:
 
-- **unmonitored**: in Forward, no Zabbix host (by name, or by IP)
+- **unmonitored**: in Forward, no Zabbix host (by name, or by IP). "Monitored" here means *a Zabbix host exists*; whether Zabbix polls it depends on the templates you link (this tool links none that poll)
 - **unmodeled**: a Zabbix host Forward has no device for
 - **drift**: matched, but the name or IP differs
 - `matched`: how many agree
@@ -44,7 +44,7 @@ and updates hosts. It is idempotent: a second run reports everything unchanged.
 
 One CSV row per Forward device describing what Zabbix says about it:
 `device,monitored,zabbix_host,open_problems,worst_severity`. A device is matched to a Zabbix host by name,
-else by IP, as in `coverage-gap`; `monitored` is `no` when there is no match. It is read-only and writes only
+else by IP, as in `coverage-gap`; `monitored` is `yes` when a Zabbix host exists for the device and `no` when there is none; it says nothing about polling. It is read-only and writes only
 the file you name (or stdout). This is the Zabbix-to-Forward direction: upload the file to Forward as a data
 file and NQE can join on `device`, for example to list devices that are unmonitored or that have open
 Zabbix problems. See [Zabbix data in NQE](forward-setup.md#zabbix-data-in-nqe).
