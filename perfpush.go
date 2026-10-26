@@ -47,6 +47,10 @@ func existingSamples(ctx context.Context, c *sdk.Client, networkID, deviceName s
 // than the newest it holds for a device, so a scheduled upload must send only newer ticks.
 type PerfState struct {
 	Newest map[string]int64 `json:"newest"` // device name -> unix seconds of the newest tick sent
+	// Claimed lists devices this tool has started sending, written BEFORE the upload. A device whose upload
+	// reached Forward but whose result was lost (timeout, failed save) is then still recognised as ours instead of
+	// being skipped forever as "already supplied by another source".
+	Claimed map[string]bool `json:"claimed"`
 }
 
 // DefaultPerfStatePath is $STATE_DIRECTORY/perf-state.json under systemd, else a file under the user's state dir.
@@ -64,7 +68,7 @@ func DefaultPerfStatePath(getenv func(string) string) string {
 // LoadPerfState reads the state file; a missing file is an empty state, a damaged one is an error (never silently
 // reset: that would re-send history or mask a problem).
 func LoadPerfState(path string) (PerfState, error) {
-	st := PerfState{Newest: map[string]int64{}}
+	st := PerfState{Newest: map[string]int64{}, Claimed: map[string]bool{}}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return st, nil
@@ -73,10 +77,13 @@ func LoadPerfState(path string) (PerfState, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(b, &st); err != nil {
-		return PerfState{Newest: map[string]int64{}}, fmt.Errorf("state file %s is damaged (%v): fix or remove it", path, err)
+		return PerfState{Newest: map[string]int64{}, Claimed: map[string]bool{}}, fmt.Errorf("state file %s is damaged (%v): fix or remove it", path, err)
 	}
 	if st.Newest == nil {
 		st.Newest = map[string]int64{}
+	}
+	if st.Claimed == nil {
+		st.Claimed = map[string]bool{}
 	}
 	return st, nil
 }
@@ -99,6 +106,10 @@ func (s PerfState) Save(path string) error {
 		tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
@@ -108,15 +119,37 @@ func (s PerfState) Save(path string) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// newerThan keeps the ticks strictly after the watermark (unix seconds).
-func newerThan(ticks []perf.DevicePerf, watermark int64) []perf.DevicePerf {
+// settle is how old a tick must be before it is sent. Zabbix commits the items of one polling cycle in separate
+// database transactions, so the newest cycle can be half written; sending it would put stale counters in Forward and
+// the watermark would then hide the complete cycle.
+const settle = 90 * time.Second
+
+// newerThan keeps the ticks strictly after the watermark and no newer than settledBefore (unix seconds).
+func newerThan(ticks []perf.DevicePerf, watermark, settledBefore int64) []perf.DevicePerf {
 	var out []perf.DevicePerf
 	for _, t := range ticks {
-		if t.Time.Unix() > watermark {
+		if t.Time.Unix() > watermark && t.Time.Unix() <= settledBefore {
 			out = append(out, t)
 		}
 	}
 	return out
+}
+
+// pushable drops what cannot be sent safely and says why. Only cumulative counters can be sent on a schedule: the
+// stock template stores rates, which are rebuilt into counters from the start of each run's window, so the same tick
+// would carry a different value from one run to the next and Forward would read the difference as traffic.
+func pushable(h perf.Device) (perf.Device, string) {
+	var keep []perf.Series
+	for _, s := range h.Ifaces {
+		if s.Cumulative {
+			keep = append(keep, s)
+		}
+	}
+	if len(keep) == 0 {
+		return h, "no interface counters from the Forward Performance by SNMP template (link it; the stock template's rates cannot be sent on a schedule)"
+	}
+	h.Ifaces = keep
+	return h, ""
 }
 
 // PerfPushDevice is one device's part of a push.
@@ -178,19 +211,25 @@ func PushPerf(ctx context.Context, networkID string, window time.Duration, apply
 			continue
 		}
 		if err != nil {
-			return res, err
-		}
-		hist.Name, hist.VendorOS = dev.Name, vos
-		last, seen := st.Newest[dev.Name]
-		ticks := newerThan(perf.Build(hist), last)
-		if len(ticks) == 0 {
-			res.Skipped[dev.Name] = "no new ticks"
+			res.Skipped[dev.Name] = "could not read Zabbix history: " + err.Error()
 			continue
 		}
-		if !seen && !allowExisting {
+		hist.Name, hist.VendorOS = dev.Name, vos
+		hist, why := pushable(hist)
+		if why != "" {
+			res.Skipped[dev.Name] = why
+			continue
+		}
+		ticks := newerThan(perf.Build(hist), st.Newest[dev.Name], to.Add(-settle).Unix())
+		if len(ticks) == 0 {
+			res.Skipped[dev.Name] = "no new settled ticks"
+			continue
+		}
+		if !st.Claimed[dev.Name] && !allowExisting {
 			n, err := existingSamples(ctx, c, networkID, dev.Name)
 			if err != nil {
-				return res, err
+				res.Skipped[dev.Name] = "could not check Forward's existing data: " + err.Error()
+				continue
 			}
 			if n > 0 {
 				res.Skipped[dev.Name] = fmt.Sprintf("Forward already holds %d performance row(s) for it; not mixing sources", n)
@@ -209,6 +248,14 @@ func PushPerf(ctx context.Context, networkID string, window time.Duration, apply
 	if !apply {
 		return res, nil
 	}
+	// Record the claim first: if the upload lands but its result is lost, the next run must recognise the device as
+	// ours. If the claim cannot be saved, send nothing.
+	for d := range newest {
+		st.Claimed[d] = true
+	}
+	if err := st.Save(statePath); err != nil {
+		return res, fmt.Errorf("could not write %s, so nothing was sent: %w", statePath, err)
+	}
 	// one attempt: a failed write's outcome is unknown, and the next run re-sends anything not recorded as sent
 	if _, err := c.Performance.UploadWithIdentity(sdk.WithoutRetry(ctx), networkID, id, payload); err != nil {
 		return res, fmt.Errorf("upload to Forward failed: %w", err)
@@ -218,7 +265,7 @@ func PushPerf(ctx context.Context, networkID string, window time.Duration, apply
 		st.Newest[d] = t
 	}
 	if err := st.Save(statePath); err != nil {
-		return res, fmt.Errorf("uploaded, but could not record it in %s (the next run will re-send the same ticks, which is harmless): %w", statePath, err)
+		return res, fmt.Errorf("uploaded, but could not advance %s (the next run re-sends the same ticks; Forward keeps one row per device and time): %w", statePath, err)
 	}
 	return res, nil
 }

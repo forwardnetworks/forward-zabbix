@@ -131,3 +131,13 @@ func TestCumulativeSeriesAreUsedAsPolledNotIntegrated(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestMemoryOnNetSNMPStyleRowsSubtractsBuffersAndCachedMemory(t *testing.T) {
+	row := func(used float64) StorageRow {
+		return StorageRow{Unit: []Sample{{0, 1}}, Size: []Sample{{0, 1000}}, Used: []Sample{{60, used}}}
+	}
+	got := Memory(map[string]StorageRow{"Physical memory": row(800), "Memory buffers": row(100), "Cached memory": row(200), "Swap space": row(5)})
+	if len(got) != 1 || got[0].V != 50 {
+		t.Fatalf("%+v", got)
+	}
+}

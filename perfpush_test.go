@@ -11,11 +11,11 @@ import (
 
 func TestNewerThanKeepsOnlyTicksAfterTheWatermark(t *testing.T) {
 	ticks := []perf.DevicePerf{{Time: time.Unix(100, 0)}, {Time: time.Unix(200, 0)}, {Time: time.Unix(300, 0)}}
-	got := newerThan(ticks, 200)
+	got := newerThan(ticks, 200, 1000)
 	if len(got) != 1 || got[0].Time.Unix() != 300 {
 		t.Fatalf("%+v", got)
 	}
-	if len(newerThan(ticks, 0)) != 3 {
+	if len(newerThan(ticks, 0, 1000)) != 3 {
 		t.Fatal("no watermark must keep everything")
 	}
 }
@@ -54,5 +54,36 @@ func TestDefaultStatePathPrefersExplicitThenSystemdThenHome(t *testing.T) {
 	}
 	if got := DefaultPerfStatePath(env(map[string]string{"STATE_DIRECTORY": "/var/lib/fwdzbx"})); got != "/var/lib/fwdzbx/perf-state.json" {
 		t.Fatal(got)
+	}
+}
+
+func TestTicksNewerThanTheSettlingLimitAreHeldBack(t *testing.T) {
+	ticks := []perf.DevicePerf{{Time: time.Unix(100, 0)}, {Time: time.Unix(200, 0)}, {Time: time.Unix(300, 0)}}
+	if got := newerThan(ticks, 0, 250); len(got) != 2 || got[1].Time.Unix() != 200 {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestOnlyCumulativeSeriesCanBePushedOnASchedule(t *testing.T) {
+	h := perf.Device{Ifaces: []perf.Series{{Name: "e1", Cumulative: true}, {Name: "lo", Cumulative: false}}}
+	got, why := pushable(h)
+	if why != "" || len(got.Ifaces) != 1 || got.Ifaces[0].Name != "e1" {
+		t.Fatalf("%+v %q", got, why)
+	}
+	if _, why := pushable(perf.Device{Ifaces: []perf.Series{{Name: "e1"}}}); why == "" {
+		t.Fatal("a stock-template-only device must be skipped with a reason")
+	}
+}
+
+func TestAClaimSurvivesTheStateFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.json")
+	st, _ := LoadPerfState(p)
+	st.Claimed["r1"] = true
+	if err := st.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := LoadPerfState(p)
+	if !back.Claimed["r1"] {
+		t.Fatal("claim lost")
 	}
 }

@@ -76,6 +76,6 @@ Forward ---webhook---> [ bridge ] ---Zabbix API / trapper---> Zabbix
 ## Open questions / [verify]
 
 - Zabbix version (7.0 has `history.push`, which simplifies pushes; 6.0 needs the trapper protocol).
-- Performance data: Forward ingests a `PerfDataPB` from a registered collector. `fwdzbx export-perf` builds one from Zabbix SNMP history without uploading; whether to upload is undecided. See [docs/performance.md](docs/performance.md).
+- Performance data: Forward ingests a `PerfDataPB` from a registered collector. `fwdzbx export-perf` builds one from Zabbix SNMP history without uploading; uploading works for one lab device, and `push-perf` is the scheduled form (not yet run). See [docs/performance.md](docs/performance.md).
 - Whether the hosted Forward can reach the receiver (webhooks are outbound from Forward; needs a reachable URL or a tunnel) **[verify]**. The polling fallback covers this for the PoC.
 - Device naming: do Forward device names match what Zabbix hosts will be called?

@@ -460,5 +460,13 @@ func UploadPerf(ctx context.Context, networkID, deviceName string, window time.D
 		return res, fmt.Errorf("upload to Forward failed: %w", err)
 	}
 	res.Uploaded = true
+	// remember it as ours, so a later push-perf does not mistake these rows for another source's
+	sp := DefaultPerfStatePath(getenv)
+	if st, err := LoadPerfState(sp); err == nil {
+		st.Claimed[deviceName] = true
+		if err := st.Save(sp); err != nil {
+			return res, fmt.Errorf("uploaded, but could not record it in %s: %w", sp, err)
+		}
+	}
 	return res, nil
 }

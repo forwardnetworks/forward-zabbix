@@ -32,9 +32,10 @@ If a host has both, the Forward template's items are used.
 
 ## What is not done
 
-- **No upload has been made.** Forward accepts uploads only from a collector registered in the network's
-  organization, and mixing this with Forward's own SNMP collection on the same network would distort rates.
-  Check that first, and get approval, before any upload.
+- **Scheduled uploads are untested.** One manual `upload-perf --apply` of one lab device was accepted and shows up in
+  Forward's interface views. `push-perf --apply` and its timer have not been run. Forward accepts uploads only from a
+  collector registered in the network's organization, and mixing this with Forward's own SNMP collection on the same
+  network would distort rates, which is what the existing-data check below guards against.
 - CPU and memory come from HOST-RESOURCES-MIB, which not every device supports (devices without it simply send
   none). Values are sent as fractions 0..1, matching Forward's thresholds. Only a Linux-based Arista device has been
   checked, and the memory figure subtracts cache and buffers; other platforms' rows may need a different
@@ -56,8 +57,9 @@ fwdzbx --network-id <id> upload-perf --device <name> --minutes 15 --apply   # se
 - One attempt, no retry: the outcome of a failed write is unknown. The collector must belong to the network's
   organization (otherwise 403). A bad payload is a 400.
 - The payload timestamp is the send time, because Forward measures collector clock lag against it.
-- Repeated uploads of overlapping windows rewrite the same rows (per the SDK maintainers, untested). There is no
-  scheduler or watermark yet, so this is a manual PoC step.
+- Forward keeps one row per device and time, and silently drops a sample older than the newest it holds for that device
+  (the SDK maintainers' reading of the code; resending an identical payload is believed harmless, not tested). For
+  scheduled use see `push-perf` below, which keeps a watermark.
 - **Not yet run with `--apply` against Forward.** The Go SDK maintainers say Forward's own SNMP performance collection
   does not need to be enabled for an upload to be accepted; that is their reading of the code, not something this
   project has seen work yet.
@@ -84,14 +86,23 @@ fwdzbx --network-id <id> push-perf --apply         # sends, then records what wa
 - **State.** Forward silently drops any sample older than the newest it holds for a device, so the job records the
   newest tick sent per device (`$STATE_DIRECTORY/perf-state.json` under systemd, else
   `~/.local/state/fwdzbx/perf-state.json`; `--state FILE` or `FWDZBX_STATE_FILE` overrides) and sends only newer
-  ticks. State advances only after Forward accepts the upload. A damaged state file is an error, never a silent reset.
-  If the upload succeeds but the state cannot be written, the next run re-sends the same ticks, which Forward treats as
-  the same rows.
-- **First time per device.** A device with no recorded state is first checked against Forward's existing CPU, memory and
-  utilization data; if any exists it is skipped with a message, so this job never mixes with Forward's own polling or an
-  earlier upload. `--allow-existing` overrides that.
-- **Skipped devices** are listed with a reason: no Zabbix host, no new ticks, or an OS Forward does not know.
+  ticks, and only ticks at least 90 seconds old, because Zabbix commits one polling cycle's items in separate
+  transactions and the newest cycle can be half written. The watermark advances only after Forward accepts the upload.
+  A damaged state file is an error, never a silent reset. If the upload succeeds but the watermark cannot be written,
+  the next run re-sends the same ticks (believed harmless, see above).
+- **First time per device.** Before the first upload the tool writes a *claim* for the device into the state file, then
+  uploads. A device that is not claimed is first checked against Forward's existing CPU, memory and utilization data
+  and skipped if any exists, so the job does not start mixing with Forward's own polling or an unrelated upload. A
+  claimed device is not checked again, so if another source starts supplying a claimed device later this tool will not
+  notice. Losing the state file turns every device back into "unclaimed", which then reads our own earlier rows as
+  another source's and skips them until you pass `--allow-existing`; keep the state file (or use `StateDirectory`).
+  `upload-perf --apply` records a claim in the default state file too.
+- **Only the Forward template's counters are sent.** The stock template stores rates, which would have to be rebuilt
+  into counters from each run's window start, so the same tick would carry a different value from one run to the next.
+  A device with only stock-template data is skipped with that reason.
+- **Skipped devices** are listed with a reason: no Zabbix host, no new settled ticks, no Forward-template counters, an OS
+  Forward does not know, or a read that failed (one device's failure does not stop the others).
 - `--minutes N` (default 30) is how far back to read Zabbix, so a few missed runs are made up.
 - Install: `deploy/systemd/fwdzbx-push-perf.{service,timer}` (every 5 minutes, `StateDirectory=fwdzbx`); put
   `FWDZBX_COLLECTOR_TOKEN` in the env file. **The Go timer has been verified with `systemd-analyze verify` only; it has
-  not been run, and `push-perf --apply` has not been run against Forward.**
+  not been run, and `push-perf --apply` has not been run against Forward.** Containers: mount a volume for the state directory (`-v fwdzbx-state:/state -e FWDZBX_STATE_FILE=/state/perf-state.json`) or every run starts with no state.

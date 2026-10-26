@@ -158,7 +158,7 @@ type StorageRow struct{ Unit, Size, Used []Sample }
 
 var (
 	ramRow    = regexp.MustCompile(`(?i)^(ram|physical memory|memory)$`)
-	cacheRows = regexp.MustCompile(`(?i)\((buffers|cache|cached)\)|^(buffers|cached)$`)
+	cacheRows = regexp.MustCompile(`(?i)\((buffers|cache|cached)\)|^(buffers|cached|memory buffers|cached memory)$`)
 )
 
 // Memory returns the fraction of RAM in use over time (0..1) from hrStorage rows keyed by hrStorageDescr. Linux-based

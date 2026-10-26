@@ -25,7 +25,7 @@ sudo systemctl enable --now fwdzbx-receiver.service \
 | `fwdzbx-enrich.timer` | `enrich --apply` | every 5 minutes |
 | `fwdzbx-push-perf.timer` | `push-perf --apply` (optional; see [Performance data](performance.md)) | every 5 minutes |
 
-All units run as a transient unprivileged user (`DynamicUser`) with no capabilities, a read-only filesystem
+All units run as a transient unprivileged user (`DynamicUser`) with no capabilities, a read-only filesystem (except the `push-perf` state directory)
 and only IP sockets. The env file is read by systemd as root, so the service user never needs access to it.
 Look at a run with `journalctl -u fwdzbx-receiver`.
 
