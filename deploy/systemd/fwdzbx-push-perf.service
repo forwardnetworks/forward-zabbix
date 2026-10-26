@@ -1,0 +1,27 @@
+[Unit]
+Description=Send Zabbix SNMP performance data to Forward (fwdzbx)
+Documentation=https://github.com/forwardnetworks/forward-zabbix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/fwdzbx/fwdzbx.env
+ExecStart=/usr/local/bin/fwdzbx push-perf --apply
+
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+StateDirectory=fwdzbx
+UMask=0077

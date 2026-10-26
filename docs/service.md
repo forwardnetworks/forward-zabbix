@@ -23,6 +23,7 @@ sudo systemctl enable --now fwdzbx-receiver.service \
 | `fwdzbx-sync-inventory.timer` | `sync-inventory --apply` | daily |
 | `fwdzbx-push-status.timer` | `push-status --apply` | every 30 minutes |
 | `fwdzbx-enrich.timer` | `enrich --apply` | every 5 minutes |
+| `fwdzbx-push-perf.timer` | `push-perf --apply` (optional; see [Performance data](performance.md)) | every 5 minutes |
 
 All units run as a transient unprivileged user (`DynamicUser`) with no capabilities, a read-only filesystem
 and only IP sockets. The env file is read by systemd as root, so the service user never needs access to it.

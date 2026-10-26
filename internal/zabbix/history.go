@@ -2,6 +2,7 @@ package zabbix
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -34,6 +35,9 @@ func (h historyItem) iface() string {
 	return ""
 }
 
+// ErrNoHost is wrapped by DeviceHistory when Zabbix has no host of that name.
+var ErrNoHost = errors.New("no Zabbix host")
+
 // DeviceHistory reads the stored SNMP metrics of one Zabbix host between from and to. It reads only.
 func (c *Client) DeviceHistory(ctx context.Context, host string, from, to time.Time) (perf.Device, error) {
 	var found []struct {
@@ -43,7 +47,7 @@ func (c *Client) DeviceHistory(ctx context.Context, host string, from, to time.T
 		return perf.Device{}, err
 	}
 	if len(found) == 0 {
-		return perf.Device{}, fmt.Errorf("no Zabbix host named %q", host)
+		return perf.Device{}, fmt.Errorf("%w named %q", ErrNoHost, host)
 	}
 	var items []historyItem
 	if err := c.Call(ctx, "item.get", map[string]any{"output": []string{"itemid", "key_", "value_type", "lastvalue"},

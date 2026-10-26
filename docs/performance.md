@@ -61,3 +61,28 @@ fwdzbx --network-id <id> upload-perf --device <name> --minutes 15 --apply   # se
 - **Not yet run with `--apply` against Forward.** The Go SDK maintainers say Forward's own SNMP performance collection
   does not need to be enabled for an upload to be accepted; that is their reading of the code, not something this
   project has seen work yet.
+
+## On a schedule: `push-perf`
+
+`fwdzbx push-perf` is what runs every five minutes (Forward's own collector polls at that rate). One run sends every
+Forward device's new ticks in a single upload.
+
+```bash
+fwdzbx --network-id <id> push-perf                 # dry run: what would be sent, no state written
+fwdzbx --network-id <id> push-perf --apply         # sends, then records what was sent
+```
+
+- **State.** Forward silently drops any sample older than the newest it holds for a device, so the job records the
+  newest tick sent per device (`$STATE_DIRECTORY/perf-state.json` under systemd, else
+  `~/.local/state/fwdzbx/perf-state.json`; `--state FILE` or `FWDZBX_STATE_FILE` overrides) and sends only newer
+  ticks. State advances only after Forward accepts the upload. A damaged state file is an error, never a silent reset.
+  If the upload succeeds but the state cannot be written, the next run re-sends the same ticks, which Forward treats as
+  the same rows.
+- **First time per device.** A device with no recorded state is first checked against Forward's existing CPU, memory and
+  utilization data; if any exists it is skipped with a message, so this job never mixes with Forward's own polling or an
+  earlier upload. `--allow-existing` overrides that.
+- **Skipped devices** are listed with a reason: no Zabbix host, no new ticks, or an OS Forward does not know.
+- `--minutes N` (default 30) is how far back to read Zabbix, so a few missed runs are made up.
+- Install: `deploy/systemd/fwdzbx-push-perf.{service,timer}` (every 5 minutes, `StateDirectory=fwdzbx`); put
+  `FWDZBX_COLLECTOR_TOKEN` in the env file. **The Go timer has been verified with `systemd-analyze verify` only; it has
+  not been run, and `push-perf --apply` has not been run against Forward.**

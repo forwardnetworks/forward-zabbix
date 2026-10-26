@@ -1,0 +1,10 @@
+[Unit]
+Description=Run: Send Zabbix SNMP performance data to Forward (fwdzbx)
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=20
+Persistent=true
+
+[Install]
+WantedBy=timers.target

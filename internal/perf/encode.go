@@ -118,3 +118,13 @@ func (p Payload) Encode() []byte {
 	}
 	return w.b
 }
+
+// LookupVendorOS maps the OS name Forward's NQE reports (for example ARISTA_EOS, or IOS_XR for Cisco) to a VendorOsPB
+// number. NQE drops the vendor prefix for some Cisco platforms, so CISCO_<name> is tried second.
+func LookupVendorOS(name string) (int32, bool) {
+	if v, ok := VendorOS[name]; ok {
+		return v, true
+	}
+	v, ok := VendorOS["CISCO_"+name]
+	return v, ok
+}

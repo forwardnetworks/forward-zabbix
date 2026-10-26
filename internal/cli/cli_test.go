@@ -47,6 +47,11 @@ func (f *fake) UploadPerf(_ context.Context, _, _ string, _ time.Duration, apply
 	return fwdzbx.PerfUpload{Collector: "collector-x", Uploaded: apply, PerfExport: fwdzbx.PerfExport{Device: "a"}}, f.err
 }
 
+func (f *fake) PushPerf(_ context.Context, _ string, _ time.Duration, apply, _ bool, _ string, _ func(string) string) (fwdzbx.PerfPush, error) {
+	return fwdzbx.PerfPush{Network: "1", Collector: "collector-x", Uploaded: apply, Bytes: 9,
+		Devices: []fwdzbx.PerfPushDevice{{Device: "a", Ticks: 2}}, Skipped: map[string]string{"b": "no Zabbix host"}}, f.err
+}
+
 func run(f *fake, env map[string]string, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
 	code := Run(context.Background(), args, &out, &errb, f, func(k string) string { return env[k] })
@@ -202,5 +207,19 @@ func TestUploadPerfIsADryRunUnlessApplied(t *testing.T) {
 	}
 	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "upload-perf"); code != 64 {
 		t.Fatalf("missing device: exit %d", code)
+	}
+}
+
+func TestPushPerfIsADryRunUnlessApplied(t *testing.T) {
+	code, out, _ := run(&fake{}, nil, "--network-id", "1", "push-perf")
+	if code != 0 || !strings.Contains(out, "would send") || !strings.Contains(out, "no state was written") || !strings.Contains(out, "skipped b: no Zabbix host") {
+		t.Fatalf("dry run: exit %d out %q", code, out)
+	}
+	code, out, _ = run(&fake{}, nil, "--network-id", "1", "push-perf", "--apply")
+	if code != 0 || !strings.HasPrefix(out, "sent ") {
+		t.Fatalf("apply: exit %d out %q", code, out)
+	}
+	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "push-perf", "--minutes", "0"); code != 64 {
+		t.Fatalf("zero minutes: exit %d", code)
 	}
 }

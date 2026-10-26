@@ -367,7 +367,7 @@ func ExportPerf(ctx context.Context, networkID, deviceName string, window time.D
 	if dev == nil {
 		return PerfExport{}, fmt.Errorf("Forward network %s has no device %q", networkID, deviceName)
 	}
-	vos, ok := perf.VendorOS[dev.OS]
+	vos, ok := perf.LookupVendorOS(dev.OS)
 	if !ok {
 		return PerfExport{}, fmt.Errorf("device %q has OS %q, which is not a Forward VendorOsPB value", deviceName, dev.OS)
 	}
@@ -437,28 +437,11 @@ func UploadPerf(ctx context.Context, networkID, deviceName string, window time.D
 	if err != nil {
 		return res, err
 	}
-	// Forward's metric reads are per type: CPU and memory per device, utilization per interface. Any row for this
-	// device in the last day means something already supplies it.
-	for _, typ := range []string{"CPU", "MEMORY"} {
-		m, _, err := c.Performance.DeviceMetrics(ctx, networkID, sdk.MetricQuery{Type: typ, Days: 1})
-		if err != nil {
-			return res, fmt.Errorf("could not check whether Forward already holds performance data for %q: %w", deviceName, err)
-		}
-		for _, r := range m.Metrics {
-			if r.DeviceName == deviceName {
-				res.ExistingSamples++
-			}
-		}
-	}
-	im, _, err := c.Performance.InterfaceMetrics(ctx, networkID, sdk.MetricQuery{Type: "UTILIZATION", Days: 1, Direction: "INGRESS"})
+	n, err := existingSamples(ctx, c, networkID, deviceName)
 	if err != nil {
-		return res, fmt.Errorf("could not check whether Forward already holds performance data for %q: %w", deviceName, err)
+		return res, err
 	}
-	for _, r := range im.Metrics {
-		if r.DeviceName == deviceName {
-			res.ExistingSamples++
-		}
-	}
+	res.ExistingSamples = n
 	if !apply {
 		return res, nil
 	}

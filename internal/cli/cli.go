@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -43,6 +44,7 @@ type API interface {
 	Enrich(ctx context.Context, networkID string, apply bool) ([]fwdzbx.Note, error)
 	ExportStatus(ctx context.Context, networkID string) ([]map[string]string, error)
 	ExportPerf(ctx context.Context, networkID, device string, window time.Duration) (fwdzbx.PerfExport, error)
+	PushPerf(ctx context.Context, networkID string, window time.Duration, apply, allowExisting bool, statePath string, getenv func(string) string) (fwdzbx.PerfPush, error)
 	UploadPerf(ctx context.Context, networkID, device string, window time.Duration, apply, allowExisting bool, getenv func(string) string) (fwdzbx.PerfUpload, error)
 }
 
@@ -73,6 +75,10 @@ func (Live) ExportStatus(ctx context.Context, n string) ([]map[string]string, er
 
 func (Live) ExportPerf(ctx context.Context, n, device string, window time.Duration) (fwdzbx.PerfExport, error) {
 	return fwdzbx.ExportPerf(ctx, n, device, window, fwdzbx.Options{})
+}
+
+func (Live) PushPerf(ctx context.Context, n string, window time.Duration, apply, allowExisting bool, statePath string, getenv func(string) string) (fwdzbx.PerfPush, error) {
+	return fwdzbx.PushPerf(ctx, n, window, apply, allowExisting, statePath, fwdzbx.Options{}, getenv)
 }
 
 func (Live) UploadPerf(ctx context.Context, n, device string, window time.Duration, apply, allowExisting bool, getenv func(string) string) (fwdzbx.PerfUpload, error) {
@@ -131,6 +137,7 @@ commands:
   export-status    CSV of what Zabbix says about each Forward device (read-only); -o FILE
   export-perf      build a Forward performance payload (PerfDataPB) from Zabbix SNMP history for one device; writes a file, uploads nothing
   upload-perf      like export-perf, but uploads to Forward as the registered collector with --apply (dry run otherwise)
+  push-perf        send every device's new Zabbix SNMP ticks to Forward as the registered collector (run every 5 minutes; dry run without --apply)
   serve            receive Forward webhooks and push the result to Zabbix
 
 global flags:
@@ -172,6 +179,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, api API, 
 		code, err = a.exportStatus(cargs)
 	case "export-perf":
 		code, err = a.exportPerf(cargs)
+	case "push-perf":
+		code, err = a.pushPerf(cargs)
 	case "upload-perf":
 		code, err = a.uploadPerf(cargs)
 	case "serve":
@@ -469,6 +478,62 @@ func (a *app) exportPerf(args []string) (int, error) {
 	fmt.Fprintf(a.out, "wrote %d bytes (PerfDataPB, %d ticks, %d interfaces) to %s; nothing was uploaded\n", len(res.Bytes), res.Ticks, len(res.Interfaces), output)
 	fmt.Fprintf(a.out, "device %s (zabbix host %s, %s)  %s .. %s  cpu %v  memory %v\n", res.Device, res.ZabbixHost, res.VendorOS,
 		res.From.UTC().Format(time.RFC3339), res.To.UTC().Format(time.RFC3339), res.HasCPU, res.HasMemory)
+	return 0, nil
+}
+
+func (a *app) pushPerf(args []string) (int, error) {
+	var state string
+	var minutes int
+	var apply, allowExisting bool
+	if _, err := sub("push-perf", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&state, "state", "", "")
+		fs.IntVar(&minutes, "minutes", 30, "")
+		fs.BoolVar(&apply, "apply", false, "")
+		fs.BoolVar(&allowExisting, "allow-existing", false, "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	if minutes <= 0 {
+		return 0, fmt.Errorf("%w: --minutes must be positive", config.ErrConfig)
+	}
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	if state == "" {
+		state = fwdzbx.DefaultPerfStatePath(a.getenv)
+	}
+	res, err := a.api.PushPerf(a.ctx, net, time.Duration(minutes)*time.Minute, apply, allowExisting, state, a.getenv)
+	if err != nil {
+		return 0, err
+	}
+	if a.json {
+		return 0, a.emit(res)
+	}
+	verb := "would send"
+	if res.Uploaded {
+		verb = "sent"
+	}
+	if len(res.Devices) == 0 {
+		fmt.Fprintf(a.out, "nothing to send to network %s (%d device(s) skipped)\n", res.Network, len(res.Skipped))
+	} else {
+		ticks := 0
+		for _, d := range res.Devices {
+			ticks += d.Ticks
+		}
+		fmt.Fprintf(a.out, "%s %d bytes: %d tick(s) for %d device(s) to network %s as collector %s\n", verb, res.Bytes, ticks, len(res.Devices), res.Network, res.Collector)
+		if !res.Uploaded {
+			fmt.Fprintln(a.out, "dry run: nothing was sent and no state was written (add --apply)")
+		}
+	}
+	names := make([]string, 0, len(res.Skipped))
+	for d := range res.Skipped {
+		names = append(names, d)
+	}
+	sort.Strings(names)
+	for _, d := range names {
+		fmt.Fprintf(a.out, "  skipped %s: %s\n", d, res.Skipped[d])
+	}
 	return 0, nil
 }
 

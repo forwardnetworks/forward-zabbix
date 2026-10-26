@@ -99,3 +99,14 @@ func TestDecodesWithProtocAgainstForwardsRealProto(t *testing.T) {
 		t.Error("an error_details was emitted")
 	}
 }
+
+func TestLookupVendorOSAcceptsNQEsCiscoShortNames(t *testing.T) {
+	for name, want := range map[string]int32{"ARISTA_EOS": 1, "IOS": 2, "IOS_XE": 20, "IOS_XR": 22, "NXOS": 3} {
+		if got, ok := LookupVendorOS(name); !ok || got != want {
+			t.Errorf("%s -> %d %v, want %d", name, got, ok, want)
+		}
+	}
+	if _, ok := LookupVendorOS("NOT_A_REAL_OS"); ok {
+		t.Error("an unknown OS must not map")
+	}
+}
