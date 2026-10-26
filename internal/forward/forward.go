@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -52,6 +53,11 @@ func NewClient(cfg config.Forward) (*sdk.Client, error) {
 			return nil, err
 		}
 		c.RootCAs = pool
+	}
+	if cfg.CAFile == "" && !cfg.InsecureSkipVerify {
+		// the SDK's own 60 s cap is short for a write that Forward answers only after storing it; a custom TLS
+		// setup keeps the SDK's client, whose transport carries those settings
+		c.HTTPClient = &http.Client{Timeout: 5 * time.Minute}
 	}
 	return sdk.NewClient(c)
 }
