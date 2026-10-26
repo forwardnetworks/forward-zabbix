@@ -43,6 +43,10 @@ func (f *fake) ExportPerf(context.Context, string, string, time.Duration) (fwdzb
 	return fwdzbx.PerfExport{Device: "a", Bytes: []byte{1, 2, 3}}, f.err
 }
 
+func (f *fake) UploadPerf(_ context.Context, _, _ string, _ time.Duration, apply, _ bool, _ func(string) string) (fwdzbx.PerfUpload, error) {
+	return fwdzbx.PerfUpload{Collector: "collector-x", Uploaded: apply, PerfExport: fwdzbx.PerfExport{Device: "a"}}, f.err
+}
+
 func run(f *fake, env map[string]string, args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
 	code := Run(context.Background(), args, &out, &errb, f, func(k string) string { return env[k] })
@@ -184,5 +188,19 @@ func TestServeRejectsAFlagAfterSpaceSeparatedNetworkIds(t *testing.T) {
 func TestExportPerfRejectsNonPositiveMinutes(t *testing.T) {
 	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "export-perf", "--device", "a", "-o", t.TempDir()+"/p", "--minutes", "0"); code != 64 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+func TestUploadPerfIsADryRunUnlessApplied(t *testing.T) {
+	code, out, _ := run(&fake{}, nil, "--network-id", "1", "upload-perf", "--device", "a")
+	if code != 0 || !strings.Contains(out, "would upload") || !strings.Contains(out, "nothing was sent") {
+		t.Fatalf("dry run: exit %d out %q", code, out)
+	}
+	code, out, _ = run(&fake{}, nil, "--network-id", "1", "upload-perf", "--device", "a", "--apply")
+	if code != 0 || !strings.HasPrefix(out, "uploaded") {
+		t.Fatalf("apply: exit %d out %q", code, out)
+	}
+	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "upload-perf"); code != 64 {
+		t.Fatalf("missing device: exit %d", code)
 	}
 }

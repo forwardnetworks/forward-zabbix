@@ -43,6 +43,7 @@ type API interface {
 	Enrich(ctx context.Context, networkID string, apply bool) ([]fwdzbx.Note, error)
 	ExportStatus(ctx context.Context, networkID string) ([]map[string]string, error)
 	ExportPerf(ctx context.Context, networkID, device string, window time.Duration) (fwdzbx.PerfExport, error)
+	UploadPerf(ctx context.Context, networkID, device string, window time.Duration, apply, allowExisting bool, getenv func(string) string) (fwdzbx.PerfUpload, error)
 }
 
 // Live is the API backed by the real Forward and Zabbix, configured from the environment.
@@ -72,6 +73,10 @@ func (Live) ExportStatus(ctx context.Context, n string) ([]map[string]string, er
 
 func (Live) ExportPerf(ctx context.Context, n, device string, window time.Duration) (fwdzbx.PerfExport, error) {
 	return fwdzbx.ExportPerf(ctx, n, device, window, fwdzbx.Options{})
+}
+
+func (Live) UploadPerf(ctx context.Context, n, device string, window time.Duration, apply, allowExisting bool, getenv func(string) string) (fwdzbx.PerfUpload, error) {
+	return fwdzbx.UploadPerf(ctx, n, device, window, apply, allowExisting, fwdzbx.Options{}, getenv)
 }
 
 type app struct {
@@ -125,6 +130,7 @@ commands:
   enrich           add Forward context to open Zabbix problems on managed hosts (dry run unless --apply)
   export-status    CSV of what Zabbix says about each Forward device (read-only); -o FILE
   export-perf      build a Forward performance payload (PerfDataPB) from Zabbix SNMP history for one device; writes a file, uploads nothing
+  upload-perf      like export-perf, but uploads to Forward as the registered collector with --apply (dry run otherwise)
   serve            receive Forward webhooks and push the result to Zabbix
 
 global flags:
@@ -166,6 +172,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, api API, 
 		code, err = a.exportStatus(cargs)
 	case "export-perf":
 		code, err = a.exportPerf(cargs)
+	case "upload-perf":
+		code, err = a.uploadPerf(cargs)
 	case "serve":
 		code, err = a.serve(cargs)
 	case "-h", "--help", "help":
@@ -461,6 +469,44 @@ func (a *app) exportPerf(args []string) (int, error) {
 	fmt.Fprintf(a.out, "wrote %d bytes (PerfDataPB, %d ticks, %d interfaces) to %s; nothing was uploaded\n", len(res.Bytes), res.Ticks, len(res.Interfaces), output)
 	fmt.Fprintf(a.out, "device %s (zabbix host %s, %s)  %s .. %s  cpu %v  memory %v\n", res.Device, res.ZabbixHost, res.VendorOS,
 		res.From.UTC().Format(time.RFC3339), res.To.UTC().Format(time.RFC3339), res.HasCPU, res.HasMemory)
+	return 0, nil
+}
+
+func (a *app) uploadPerf(args []string) (int, error) {
+	var device string
+	var minutes int
+	var apply, allowExisting bool
+	if _, err := sub("upload-perf", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&device, "device", "", "")
+		fs.IntVar(&minutes, "minutes", 15, "")
+		fs.BoolVar(&apply, "apply", false, "")
+		fs.BoolVar(&allowExisting, "allow-existing", false, "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	if device == "" || minutes <= 0 {
+		return 0, fmt.Errorf("%w: upload-perf needs --device NAME and a positive --minutes", config.ErrConfig)
+	}
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	res, err := a.api.UploadPerf(a.ctx, net, device, time.Duration(minutes)*time.Minute, apply, allowExisting, a.getenv)
+	if err != nil {
+		return 0, err
+	}
+	if a.json {
+		return 0, a.emit(res)
+	}
+	verb := "would upload"
+	if res.Uploaded {
+		verb = "uploaded"
+	}
+	fmt.Fprintf(a.out, "%s %d bytes (%d ticks, %d interfaces) for %s to network %s as collector %s; Forward already holds %d sample(s) for it in the last day\n",
+		verb, len(res.Bytes), res.Ticks, len(res.Interfaces), res.Device, res.Network, res.Collector, res.ExistingSamples)
+	if !res.Uploaded {
+		fmt.Fprintln(a.out, "dry run: nothing was sent (add --apply)")
+	}
 	return 0, nil
 }
 

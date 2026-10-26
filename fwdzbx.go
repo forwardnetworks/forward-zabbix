@@ -392,6 +392,83 @@ func ExportPerf(ctx context.Context, networkID, deviceName string, window time.D
 	for _, s := range hist.Ifaces {
 		res.Interfaces = append(res.Interfaces, s.Name)
 	}
-	res.Bytes = perf.Payload{Time: res.To, Devices: ticks}.Encode()
+	// the payload's own timestamp is when it is sent: Forward measures collector clock lag against it
+	res.Bytes = perf.Payload{Time: time.Now(), Devices: ticks}.Encode()
+	return res, nil
+}
+
+// PerfUpload is the result of UploadPerf. Uploaded is false for a dry run.
+type PerfUpload struct {
+	PerfExport
+	Network         string `json:"network"`
+	Collector       string `json:"collector"` // the collector's username; its password is never reported
+	ExistingSamples int    `json:"forward_existing_samples"`
+	Uploaded        bool   `json:"uploaded"`
+}
+
+// collectorIdentity reads FWDZBX_COLLECTOR_TOKEN: "username:password", or the collector's installation key.
+func collectorIdentity(getenv func(string) string) (sdk.CollectorIdentity, error) {
+	token := strings.TrimSpace(getenv("FWDZBX_COLLECTOR_TOKEN"))
+	if token == "" {
+		return sdk.CollectorIdentity{}, fmt.Errorf("%w: set FWDZBX_COLLECTOR_TOKEN to the registered collector's token (username:password)", config.ErrConfig)
+	}
+	key, err := sdk.ParseCollectorAuthKey(token)
+	if err != nil {
+		return sdk.CollectorIdentity{}, fmt.Errorf("%w: FWDZBX_COLLECTOR_TOKEN is not a collector key: %v", config.ErrConfig, err)
+	}
+	return sdk.CollectorIdentity{Username: key.Username, AuthorizationKey: key.Password}, nil
+}
+
+// UploadPerf builds the same payload as ExportPerf and, only when apply is true, uploads it to Forward as the
+// registered collector. It first asks Forward whether the device already has performance data in the last day and
+// refuses to upload if it does (Forward's own SNMP polling or an earlier upload would be overwritten or mixed with
+// ours) unless allowExisting. A dry run still makes that read-only check.
+func UploadPerf(ctx context.Context, networkID, deviceName string, window time.Duration, apply, allowExisting bool, o Options, getenv func(string) string) (PerfUpload, error) {
+	id, err := collectorIdentity(getenv)
+	if err != nil {
+		return PerfUpload{}, err
+	}
+	exp, err := ExportPerf(ctx, networkID, deviceName, window, o)
+	if err != nil {
+		return PerfUpload{}, err
+	}
+	res := PerfUpload{PerfExport: exp, Network: networkID, Collector: id.Username}
+	c, err := o.forwardClient()
+	if err != nil {
+		return res, err
+	}
+	// Forward's metric reads are per type: CPU and memory per device, utilization per interface. Any row for this
+	// device in the last day means something already supplies it.
+	for _, typ := range []string{"CPU", "MEMORY"} {
+		m, _, err := c.Performance.DeviceMetrics(ctx, networkID, sdk.MetricQuery{Type: typ, Days: 1})
+		if err != nil {
+			return res, fmt.Errorf("could not check whether Forward already holds performance data for %q: %w", deviceName, err)
+		}
+		for _, r := range m.Metrics {
+			if r.DeviceName == deviceName {
+				res.ExistingSamples++
+			}
+		}
+	}
+	im, _, err := c.Performance.InterfaceMetrics(ctx, networkID, sdk.MetricQuery{Type: "UTILIZATION", Days: 1, Direction: "INGRESS"})
+	if err != nil {
+		return res, fmt.Errorf("could not check whether Forward already holds performance data for %q: %w", deviceName, err)
+	}
+	for _, r := range im.Metrics {
+		if r.DeviceName == deviceName {
+			res.ExistingSamples++
+		}
+	}
+	if !apply {
+		return res, nil
+	}
+	if res.ExistingSamples > 0 && !allowExisting {
+		return res, fmt.Errorf("Forward already holds %d performance sample(s) for %q in the last day; refusing to mix sources (--allow-existing overrides)", res.ExistingSamples, deviceName)
+	}
+	// one attempt only: do not retry a write whose outcome is unknown
+	if _, err := c.Performance.UploadWithIdentity(sdk.WithoutRetry(ctx), networkID, id, exp.Bytes); err != nil {
+		return res, fmt.Errorf("upload to Forward failed: %w", err)
+	}
+	res.Uploaded = true
 	return res, nil
 }

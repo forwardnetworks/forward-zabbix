@@ -13,6 +13,7 @@ All commands except `serve` take `--network-id ID` (or `FORWARD_NETWORK_ID`) and
 | `push-status` | Forward, Zabbix | Zabbix trapper values; creates the network host and `Forward` group if missing |
 | `enrich` | Forward, Zabbix | acknowledgement notes on open Forward problems |
 | `export-perf --device NAME -o FILE [--minutes N]` | Forward, Zabbix | nothing (a local PerfDataPB file; see [Performance data](performance.md)) |
+| `upload-perf --device NAME [--minutes N] [--apply] [--allow-existing]` | Forward, Zabbix | Forward performance data, as the registered collector (dry run without `--apply`; see [Performance data](performance.md)) |
 | `serve` | | Zabbix trapper values, on each webhook |
 
 ## coverage-gap
