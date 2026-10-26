@@ -59,7 +59,7 @@ event, before and after snapshots around a maintenance window, onboarding candid
 | [Forward setup](forward-setup.md) | Create the webhook and find the network id |
 | [Usage](usage.md) | Run each command, read its output and exit codes |
 | [Run as a service](service.md) | systemd units and timers, or the container image |
-| [Python API](python-api.md) | Call it from your own pipelines, or consume `--json` |
+| [Go API](go-api.md) | Call it from your own pipelines, or consume `--json` |
 | [Architecture](architecture.md) | See how the pieces fit and why |
 | [Troubleshooting](troubleshooting.md) | Fix the usual failures |
 | [Validation](validation.md) | See what was tested, against what, and what was not |

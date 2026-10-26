@@ -13,9 +13,9 @@ by the tool itself, so secrets stay wherever you keep them (a systemd `Environme
 | `FORWARD_PASSWORD` | yes | API token secret (or a password) |
 | `FORWARD_NETWORK_ID` | one of this or `--network-id` | The Forward network to act on |
 
-The Forward SDK also honours `FORWARD_VERIFY_TLS` (`false`, or a path to a CA bundle for a private CA),
-`FORWARD_TIMEOUT`, `FORWARD_RETRIES` and `FORWARD_RATE_LIMIT_RPM`. See the
-[Forward Python SDK configuration](https://github.com/forwardnetworks/forward-python-sdk).
+`FORWARD_VERIFY_TLS` is optional: `false` (or `0`) skips certificate verification, and any other non-empty
+value is a path to a CA bundle for a private CA. There are no timeout, retry or rate-limit variables; the
+Forward Go SDK's defaults apply.
 
 ## Zabbix
 
@@ -45,7 +45,7 @@ are pushed to the **server's trapper port**, not the web frontend.
 | Flag | Meaning |
 |---|---|
 | `--network-id ID` | Overrides `FORWARD_NETWORK_ID` |
-| `--json` | Print machine-readable JSON on stdout and nothing else. See [Python API](python-api.md) |
+| `--json` | Print machine-readable JSON on stdout and nothing else. See [Go API](go-api.md) |
 | `--apply` | On `sync-inventory`, `push-status`, `enrich`: make the change. Without it they only report |
 
 ## Zabbix template macros

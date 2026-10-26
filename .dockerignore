@@ -1,7 +1,6 @@
-.venv
 .git
-.pytest_cache
-__pycache__
-deploy/.env
+deploy
+docs
+examples
 *.env
-docs/images
+*.pb

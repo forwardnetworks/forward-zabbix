@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.12 or newer, or Docker.
+- Go 1.24 or newer to build, or Docker. The result is one static binary with no runtime dependencies.
 - A Forward instance and an API token (below).
 - Zabbix 7.0 (tested on 7.0.32). Older versions are untested; the template export format is `7.0`.
 
@@ -11,16 +11,16 @@
 From a clone of this repository:
 
 ```bash
-uv sync                    # development install into .venv
-uv run fwdzbx --help
+go build -o fwdzbx ./cmd/fwdzbx
+./fwdzbx --help
 ```
 
 As an installed command (for a server):
 
 ```bash
-python3 -m venv /opt/fwdzbx
-/opt/fwdzbx/bin/pip install /path/to/forward-zabbix     # or: pip install git+https://github.com/forwardnetworks/forward-zabbix
-/opt/fwdzbx/bin/fwdzbx --help
+go install github.com/forwardnetworks/forward-zabbix/cmd/fwdzbx@latest
+sudo install -m 0755 "$(go env GOPATH)/bin/fwdzbx" /usr/local/bin/fwdzbx
+fwdzbx --help
 ```
 
 As a container: `docker build -t fwdzbx .` (see [Run as a service](service.md#container)).

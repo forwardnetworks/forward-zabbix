@@ -14,6 +14,6 @@ Please do not include credentials, customer topology or device data in a report.
 
 ## Scope
 
-The code and deployment files in this repository: the CLI, the Python API, the webhook receiver, the Zabbix
+The code and deployment files in this repository: the CLI, the Go API, the webhook receiver, the Zabbix
 templates, the systemd units and the Dockerfile. Keep the receiver behind TLS; see
 [Run as a service](docs/service.md).

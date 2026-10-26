@@ -54,7 +54,7 @@ func ZabbixFromEnv() (Zabbix, error) {
 	return z, nil
 }
 
-// Forward is how to reach Forward. The same variables the Forward Python SDK used.
+// Forward is how to reach Forward. FORWARD_VERIFY_TLS is the only tuning variable.
 type Forward struct {
 	URL, Username, Password string
 	InsecureSkipVerify      bool

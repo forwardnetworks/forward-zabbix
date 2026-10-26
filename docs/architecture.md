@@ -3,26 +3,26 @@
 ```
 Forward ---SNAPSHOT_READY webhook (HTTPS, basic auth)---> fwdzbx serve ---+
    ^                                                                       |  Zabbix API (hosts, notes)
-   +---- NQE / snapshots (Forward Python SDK) <---- fwdzbx commands -------+- trapper port (values)
+   +---- NQE / snapshots (Forward Go SDK) <---- fwdzbx commands -------+- trapper port (values)
                                                                            v
                                                                         Zabbix
 ```
 
-A standalone Python service. It is not a Zabbix plugin or agent, and not part of Forward.
+A standalone Go service, one static binary. It is not a Zabbix plugin or agent, and not part of Forward.
 
 | Module | Job |
 |---|---|
-| `forward.py` | Forward reads: devices and links by NQE, newest processed snapshot |
-| `plan.py` | Pure logic with no I/O: what to create or update, coverage gap, status values, notes. Most tests live here |
-| `zabbix.py` | The Zabbix side: API calls and trapper pushes |
-| `service.py` | Collect-then-push, shared by the CLI and the receiver |
-| `receiver.py` | The webhook server: auth, parse, de-duplicate, queue, worker |
-| `api.py`, `cli.py` | The public Python API and the command line over it |
+| `internal/forward` | Forward reads: devices and links by NQE, newest processed snapshot |
+| `internal/plan` | Pure logic with no I/O: what to create or update, coverage gap, status values, notes. Most tests live here |
+| `internal/zabbix` | The Zabbix side: JSON-RPC calls, trapper pushes, history reads |
+| `internal/receiver` | The webhook server: auth, parse, de-duplicate, queue, worker |
+| `internal/perf` | Forward performance payload (PerfDataPB) encoder and rate-to-counter reconstruction |
+| `internal/cli`, root package `fwdzbx` | The command line, and the public Go API it sits on |
 
 ## Decisions
 
 - **Forward is read-only here.** Nothing changes Forward; the Forward-side setup is yours to do.
-- **Plan, then apply.** Logic in `plan.py` returns a plan; `apply` executes it. Dry run is the default.
+- **Plan, then apply.** Logic in `internal/plan` returns a plan; `apply` executes it. Dry run is the default.
 - **Ownership by tag.** The `managed-by` tag is the only license to modify a host.
 - **Trapper items, not polling.** Forward is not a device to monitor, so values are pushed.
 - **Receiver answers first, works later.** Forward gives it 10 seconds and does not retry, so it queues and

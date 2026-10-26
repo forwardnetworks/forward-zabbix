@@ -8,13 +8,16 @@ package fwdzbx
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	sdk "github.com/forwardnetworks/forward-go-sdk"
 
 	"github.com/forwardnetworks/forward-zabbix/internal/config"
 	"github.com/forwardnetworks/forward-zabbix/internal/forward"
+	"github.com/forwardnetworks/forward-zabbix/internal/perf"
 	"github.com/forwardnetworks/forward-zabbix/internal/plan"
 	"github.com/forwardnetworks/forward-zabbix/internal/zabbix"
 )
@@ -332,4 +335,63 @@ func ExportStatus(ctx context.Context, networkID string, o Options) ([]map[strin
 		return nil, err
 	}
 	return plan.StatusRows(devices, hosts, counts), nil
+}
+
+// PerfExport is a PerfDataPB built from Zabbix's stored SNMP history for one device. Nothing is uploaded.
+type PerfExport struct {
+	Device     string    `json:"device"`
+	ZabbixHost string    `json:"zabbix_host"`
+	VendorOS   string    `json:"vendor_os"`
+	Ticks      int       `json:"ticks"`
+	Interfaces []string  `json:"interfaces"`
+	From       time.Time `json:"from"`
+	To         time.Time `json:"to"`
+	HasCPU     bool      `json:"has_cpu"`
+	HasMemory  bool      `json:"has_memory"`
+	Bytes      []byte    `json:"-"` // the serialized PerfDataPB
+}
+
+// ExportPerf builds the payload Forward's performance pipeline ingests (a PerfDataPB) from the last `window` of
+// Zabbix SNMP history for one Forward device. It reads Forward and Zabbix and writes nothing to either.
+func ExportPerf(ctx context.Context, networkID, deviceName string, window time.Duration, o Options) (PerfExport, error) {
+	devices, err := Devices(ctx, networkID, o)
+	if err != nil {
+		return PerfExport{}, err
+	}
+	var dev *Device
+	for i := range devices {
+		if devices[i].Name == deviceName {
+			dev = &devices[i]
+		}
+	}
+	if dev == nil {
+		return PerfExport{}, fmt.Errorf("Forward network %s has no device %q", networkID, deviceName)
+	}
+	vos, ok := perf.VendorOS[dev.OS]
+	if !ok {
+		return PerfExport{}, fmt.Errorf("device %q has OS %q, which is not a Forward VendorOsPB value", deviceName, dev.OS)
+	}
+	z, err := o.connect(ctx)
+	if err != nil {
+		return PerfExport{}, err
+	}
+	defer z.Close(ctx)
+	to := time.Now()
+	host := plan.TechnicalName(dev.Name)
+	hist, err := z.DeviceHistory(ctx, host, to.Add(-window), to)
+	if err != nil {
+		return PerfExport{}, err
+	}
+	hist.Name, hist.VendorOS = dev.Name, vos
+	ticks := perf.Build(hist)
+	if len(ticks) == 0 {
+		return PerfExport{}, fmt.Errorf("Zabbix host %q has no SNMP uptime history in the last %s: is an SNMP template linked and polling?", host, window)
+	}
+	res := PerfExport{Device: dev.Name, ZabbixHost: host, VendorOS: dev.OS, Ticks: len(ticks),
+		From: ticks[0].Time, To: ticks[len(ticks)-1].Time, HasCPU: len(hist.CPU) > 0, HasMemory: len(hist.Memory) > 0}
+	for _, s := range hist.Ifaces {
+		res.Interfaces = append(res.Interfaces, s.Name)
+	}
+	res.Bytes = perf.Payload{Time: res.To, Devices: ticks}.Encode()
+	return res, nil
 }

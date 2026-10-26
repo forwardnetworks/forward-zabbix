@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/fwdzbx/fwdzbx.env
-ExecStart=/opt/fwdzbx/bin/fwdzbx enrich --apply
+ExecStart=/usr/local/bin/fwdzbx enrich --apply
 
 DynamicUser=yes
 NoNewPrivileges=yes

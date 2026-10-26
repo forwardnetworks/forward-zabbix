@@ -7,7 +7,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/fwdzbx/fwdzbx.env
-ExecStart=/opt/fwdzbx/bin/fwdzbx push-status --apply
+ExecStart=/usr/local/bin/fwdzbx push-status --apply
 
 DynamicUser=yes
 NoNewPrivileges=yes

@@ -3,7 +3,7 @@
 ## Import the templates
 
 Zabbix: **Data collection > Templates > Import**, choose `zabbix/forward-templates.yaml`. Or by API (this
-is what `examples/synthetic_demo.py` does): `configuration.import` with `createMissing` and `updateExisting`.
+is what `examples/synthetic_demo` does): `configuration.import` with `createMissing` and `updateExisting`.
 
 Two templates are created, in the template group `Templates/Network devices`:
 

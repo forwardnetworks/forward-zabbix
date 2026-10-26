@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/forwardnetworks/forward-zabbix"
 	"github.com/forwardnetworks/forward-zabbix/internal/plan"
@@ -35,6 +37,10 @@ func (f *fake) SendValues(context.Context, string, []fwdzbx.Value) (int, int, []
 func (f *fake) Enrich(context.Context, string, bool) ([]fwdzbx.Note, error) { return nil, f.err }
 func (f *fake) ExportStatus(context.Context, string) ([]map[string]string, error) {
 	return []map[string]string{{"device": "a", "monitored": "yes", "zabbix_host": "a", "open_problems": "0", "worst_severity": ""}}, f.err
+}
+
+func (f *fake) ExportPerf(context.Context, string, string, time.Duration) (fwdzbx.PerfExport, error) {
+	return fwdzbx.PerfExport{Device: "a", Bytes: []byte{1, 2, 3}}, f.err
 }
 
 func run(f *fake, env map[string]string, args ...string) (int, string, string) {
@@ -153,4 +159,16 @@ func TestDevicesTableAndPackageExportsTheAPI(t *testing.T) {
 		t.Fatalf("exit %d out %q", code, out)
 	}
 	var _ = []any{fwdzbx.Devices, fwdzbx.CoverageGap, fwdzbx.SyncInventory, fwdzbx.PushStatus, fwdzbx.Enrich, fwdzbx.ExportStatus}
+}
+
+func TestExportPerfNeedsADeviceAndAFileAndWritesOnlyThatFile(t *testing.T) {
+	if code, _, errb := run(&fake{}, nil, "--network-id", "1", "export-perf"); code != 64 || !strings.Contains(errb, "--device") {
+		t.Fatalf("exit %d err %q", code, errb)
+	}
+	path := t.TempDir() + "/p.pb"
+	code, out, _ := run(&fake{}, nil, "--network-id", "1", "export-perf", "--device", "a", "-o", path)
+	b, err := os.ReadFile(path)
+	if code != 0 || err != nil || !bytes.Equal(b, []byte{1, 2, 3}) || !strings.Contains(out, "nothing was uploaded") {
+		t.Fatalf("exit %d err %v out %q", code, err, out)
+	}
 }

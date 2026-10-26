@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/forwardnetworks/forward-zabbix"
 	"github.com/forwardnetworks/forward-zabbix/internal/config"
@@ -41,6 +42,7 @@ type API interface {
 	SendValues(ctx context.Context, networkID string, values []fwdzbx.Value) (int, int, []string, error)
 	Enrich(ctx context.Context, networkID string, apply bool) ([]fwdzbx.Note, error)
 	ExportStatus(ctx context.Context, networkID string) ([]map[string]string, error)
+	ExportPerf(ctx context.Context, networkID, device string, window time.Duration) (fwdzbx.PerfExport, error)
 }
 
 // Live is the API backed by the real Forward and Zabbix, configured from the environment.
@@ -66,6 +68,10 @@ func (Live) Enrich(ctx context.Context, n string, apply bool) ([]fwdzbx.Note, er
 }
 func (Live) ExportStatus(ctx context.Context, n string) ([]map[string]string, error) {
 	return fwdzbx.ExportStatus(ctx, n, fwdzbx.Options{})
+}
+
+func (Live) ExportPerf(ctx context.Context, n, device string, window time.Duration) (fwdzbx.PerfExport, error) {
+	return fwdzbx.ExportPerf(ctx, n, device, window, fwdzbx.Options{})
 }
 
 type app struct {
@@ -118,6 +124,7 @@ commands:
   push-status      push Forward collection health to Zabbix trapper items (dry run unless --apply)
   enrich           add Forward context to open Zabbix problems on managed hosts (dry run unless --apply)
   export-status    CSV of what Zabbix says about each Forward device (read-only); -o FILE
+  export-perf      build a Forward performance payload (PerfDataPB) from Zabbix SNMP history for one device; writes a file, uploads nothing
   serve            receive Forward webhooks and push the result to Zabbix
 
 global flags:
@@ -157,6 +164,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, api API, 
 		code, err = a.enrich(cargs)
 	case "export-status":
 		code, err = a.exportStatus(cargs)
+	case "export-perf":
+		code, err = a.exportPerf(cargs)
 	case "serve":
 		code, err = a.serve(cargs)
 	case "-h", "--help", "help":
@@ -415,6 +424,40 @@ func (a *app) exportStatus(args []string) (int, error) {
 	if output != "" {
 		fmt.Fprintf(a.err, "wrote %d rows to %s\n", len(rows), output)
 	}
+	return 0, nil
+}
+
+func (a *app) exportPerf(args []string) (int, error) {
+	var device, output string
+	var minutes int
+	if _, err := sub("export-perf", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&device, "device", "", "")
+		fs.StringVar(&output, "output", "", "")
+		fs.StringVar(&output, "o", "", "")
+		fs.IntVar(&minutes, "minutes", 60, "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	if device == "" || output == "" {
+		return 0, fmt.Errorf("%w: export-perf needs --device NAME and --output FILE", config.ErrConfig)
+	}
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	res, err := a.api.ExportPerf(a.ctx, net, device, time.Duration(minutes)*time.Minute)
+	if err != nil {
+		return 0, err
+	}
+	if err := os.WriteFile(output, res.Bytes, 0o600); err != nil {
+		return 0, err
+	}
+	if a.json {
+		return 0, a.emit(map[string]any{"export": res, "file": output, "bytes": len(res.Bytes)})
+	}
+	fmt.Fprintf(a.out, "wrote %d bytes (PerfDataPB, %d ticks, %d interfaces) to %s; nothing was uploaded\n", len(res.Bytes), res.Ticks, len(res.Interfaces), output)
+	fmt.Fprintf(a.out, "device %s (zabbix host %s, %s)  %s .. %s  cpu %v  memory %v\n", res.Device, res.ZabbixHost, res.VendorOS,
+		res.From.UTC().Format(time.RFC3339), res.To.UTC().Format(time.RFC3339), res.HasCPU, res.HasMemory)
 	return 0, nil
 }
 

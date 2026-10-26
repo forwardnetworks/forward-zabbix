@@ -166,6 +166,10 @@ func NewestSnapshot(ctx context.Context, c *sdk.Client, networkID string) (Snaps
 	if err != nil {
 		return Snapshot{}, err
 	}
+	return pickNewest(networkID, list)
+}
+
+func pickNewest(networkID string, list []sdk.Snapshot) (Snapshot, error) {
 	var best Snapshot
 	var bestTime time.Time
 	for _, s := range list {

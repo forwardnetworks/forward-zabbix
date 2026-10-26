@@ -8,7 +8,7 @@ the one-shot commands. Use both: the receiver for speed, the timers because webh
 Units are in `deploy/systemd/`.
 
 ```bash
-sudo python3 -m venv /opt/fwdzbx && sudo /opt/fwdzbx/bin/pip install /path/to/forward-zabbix
+go build -o fwdzbx ./cmd/fwdzbx && sudo install -m 0755 fwdzbx /usr/local/bin/fwdzbx
 sudo install -d -m 0750 /etc/fwdzbx
 sudo install -m 0600 deploy/systemd/fwdzbx.env.example /etc/fwdzbx/fwdzbx.env   # then edit it
 sudo cp deploy/systemd/fwdzbx-* /etc/systemd/system/

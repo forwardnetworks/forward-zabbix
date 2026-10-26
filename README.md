@@ -75,31 +75,31 @@ Forward --webhook--> fwdzbx serve --API / trapper--> Zabbix
 Forward <--NQE / snapshots-- fwdzbx commands --------^
 ```
 
-A standalone Python service; not a Zabbix plugin and not part of Forward. It reads Forward and writes only
+A standalone Go service (one static binary); not a Zabbix plugin and not part of Forward. It reads Forward and writes only
 to Zabbix. See [Architecture](docs/architecture.md).
 
 ## Documentation
 
 [Overview](docs/index.md) | [Install](docs/install.md) | [Configuration](docs/configuration.md) |
 [Zabbix setup](docs/zabbix-setup.md) | [Forward setup](docs/forward-setup.md) | [Usage](docs/usage.md) |
-[Run as a service](docs/service.md) | [Python API and pipelines](docs/python-api.md) |
-[Troubleshooting](docs/troubleshooting.md) | [Validation](docs/validation.md)
+[Run as a service](docs/service.md) | [Go API and pipelines](docs/go-api.md) |
+[Performance data](docs/performance.md) | [Troubleshooting](docs/troubleshooting.md) | [Validation](docs/validation.md)
 
 Also: `fwdzbx serve` receives Forward's snapshot webhook; `--json` on every command gives machine-readable
-output; `fwdzbx` is importable (`import fwdzbx; fwdzbx.coverage_gap(...)`).
+output; `fwdzbx` is also a Go package (`fwdzbx.CoverageGap(ctx, networkID, fwdzbx.Options{})`).
 
 ## Run it
 
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Forward credentials (an API token's
+Requires Go 1.24+ (or a release binary or Docker), Forward credentials (an API token's
 access key and secret), and a Zabbix 7.0 server. Tested against Zabbix 7.0.32.
 
 ```bash
-uv sync
+go install github.com/forwardnetworks/forward-zabbix/cmd/fwdzbx@latest   # or: go build -o fwdzbx ./cmd/fwdzbx
 export FORWARD_URL=https://your-forward-host FORWARD_USERNAME=... FORWARD_PASSWORD=...
 export ZABBIX_URL=http://127.0.0.1:8081 ZABBIX_USER=... ZABBIX_PASSWORD=...   # or ZABBIX_TOKEN
-uv run fwdzbx --network-id <id> coverage-gap
-uv run fwdzbx --network-id <id> sync-inventory           # dry run
-uv run fwdzbx --network-id <id> sync-inventory --apply
+fwdzbx --network-id <id> coverage-gap
+fwdzbx --network-id <id> sync-inventory           # dry run
+fwdzbx --network-id <id> sync-inventory --apply
 ```
 
 Credentials come from the environment only; nothing is written to disk.
@@ -111,7 +111,7 @@ beyond a local test).
 ## Tests
 
 ```bash
-uv run pytest
+go vet ./... && go test -race ./...
 ```
 
 The unit tests cover the planning and diff logic with synthetic devices. They do not need Forward
@@ -119,6 +119,8 @@ or Zabbix.
 
 ## Layout
 
-`src/fwdzbx/plan.py` holds the pure sync-planning and gap logic. `forward.py` and `zabbix.py` are
-the two I/O edges (the [Forward Python SDK](https://pypi.org/project/forward-sdk/) and
-[`zabbix-utils`](https://pypi.org/project/zabbix-utils/)). `receiver.py` is the webhook server, `api.py` the public Python API and `cli.py` the command line over it. `deploy/` has the systemd units, a throwaway Zabbix and `Dockerfile` is at the root.
+`internal/plan` holds the pure sync-planning and gap logic. `internal/forward` and `internal/zabbix` are
+the two I/O edges (the [Forward Go SDK](https://github.com/forwardnetworks/forward-go-sdk) and a small
+hand-written Zabbix JSON-RPC and trapper client). `internal/receiver` is the webhook server, the root package
+`fwdzbx` the public Go API and `internal/cli` the command line over it. `internal/perf` builds Forward
+performance payloads (see [Performance data](docs/performance.md)). `deploy/` has the systemd units, a throwaway Zabbix and `Dockerfile` is at the root.

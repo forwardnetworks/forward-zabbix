@@ -53,7 +53,7 @@ Forward ---webhook---> [ bridge ] ---Zabbix API / trapper---> Zabbix
    +--- SDK queries ------+  +--- Zabbix webhook media type ----+
 ```
 
-- **bridge** (one small service, Python): webhook receiver (ack fast, queue, no reliance on Forward retries), sync jobs (A1, A4, B4), enrichment endpoint (B1, B2, B3).
+- **bridge** (one small service, Go): webhook receiver (ack fast, queue, no reliance on Forward retries), sync jobs (A1, A4, B4), enrichment endpoint (B1, B2, B3).
 - **Zabbix template** (importable YAML): trapper items, triggers, dashboards, value maps.
 - **Zabbix media type** (JS webhook script): small; just forwards problems to the bridge.
 - State: none required for PoC beyond a cursor/debounce file; Zabbix and Forward remain the stores.
@@ -76,6 +76,6 @@ Forward ---webhook---> [ bridge ] ---Zabbix API / trapper---> Zabbix
 ## Open questions / [verify]
 
 - Zabbix version (7.0 has `history.push`, which simplifies pushes; 6.0 needs the trapper protocol).
-- Python SDK coverage of performance data and webhook configuration **[verify]**.
+- Performance data: Forward ingests a `PerfDataPB` from a registered collector. `fwdzbx export-perf` builds one from Zabbix SNMP history without uploading; whether to upload is undecided. See [docs/performance.md](docs/performance.md).
 - Whether the hosted Forward can reach the receiver (webhooks are outbound from Forward; needs a reachable URL or a tunnel) **[verify]**. The polling fallback covers this for the PoC.
 - Device naming: do Forward device names match what Zabbix hosts will be called?

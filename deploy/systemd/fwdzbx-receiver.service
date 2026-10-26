@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=/etc/fwdzbx/fwdzbx.env
 # Listens on loopback; put a reverse proxy or tunnel with TLS in front of it. Never expose it as plain HTTP.
-ExecStart=/opt/fwdzbx/bin/fwdzbx serve --listen 127.0.0.1:8020 --path /forward-webhook
+ExecStart=/usr/local/bin/fwdzbx serve --listen 127.0.0.1:8020 --path /forward-webhook
 Restart=on-failure
 RestartSec=5
 
