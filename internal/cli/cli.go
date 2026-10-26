@@ -441,6 +441,9 @@ func (a *app) exportPerf(args []string) (int, error) {
 	if device == "" || output == "" {
 		return 0, fmt.Errorf("%w: export-perf needs --device NAME and --output FILE", config.ErrConfig)
 	}
+	if minutes <= 0 {
+		return 0, fmt.Errorf("%w: --minutes must be positive", config.ErrConfig)
+	}
 	net, err := a.network()
 	if err != nil {
 		return 0, err
@@ -471,7 +474,13 @@ func (a *app) serve(args []string) (int, error) {
 	if err != nil {
 		return 0, usageErr(err)
 	}
-	// ids may be comma-separated, repeated, or space-separated after the flag
+	// ids may be comma-separated, or space-separated after the flag; Go stops flag parsing at the first
+	// non-flag, so a flag after the ids would otherwise be swallowed as a network id
+	for _, x := range fs.Args() {
+		if strings.HasPrefix(x, "-") {
+			return 0, fmt.Errorf("%w: put flags before network ids: unexpected %q", config.ErrConfig, x)
+		}
+	}
 	raw := append([]string{ids}, fs.Args()...)
 	if ids == "" && len(fs.Args()) == 0 {
 		raw = []string{a.getenv("FWDZBX_NETWORK_IDS")}
@@ -517,7 +526,7 @@ func (a *app) serve(args []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	fmt.Fprintf(a.out, "listening on %s%s for networks %v\n", listen, path, networks)
+	fmt.Fprintf(a.err, "listening on %s%s for networks %v\n", listen, path, networks)
 	ctx, stop := signal.NotifyContext(a.ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return 0, rx.Serve(ctx, ln)

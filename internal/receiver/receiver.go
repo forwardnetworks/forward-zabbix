@@ -3,6 +3,7 @@
 package receiver
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
@@ -40,12 +41,12 @@ type Event struct {
 // ParseEvent returns an error for anything that is not a Forward event we understand.
 func ParseEvent(body []byte) (Event, error) {
 	var data map[string]any
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := decodeObject(body, &data); err != nil {
 		return Event{}, fmt.Errorf("not a JSON object: %v", err)
 	}
 	var missing []string
 	for _, k := range []string{"type", "networkId", "snapshotId"} {
-		if v, ok := data[k]; !ok || v == nil || v == "" || v == false || v == float64(0) {
+		if v, ok := data[k]; !ok || v == nil || v == "" || v == false || v == json.Number("0") {
 			missing = append(missing, k)
 		}
 	}
@@ -53,6 +54,14 @@ func ParseEvent(body []byte) (Event, error) {
 		return Event{}, fmt.Errorf("missing field(s): %s", strings.Join(missing, ", "))
 	}
 	return Event{fmt.Sprint(data["type"]), fmt.Sprint(data["networkId"]), fmt.Sprint(data["snapshotId"]), data}, nil
+}
+
+// decodeObject parses a JSON object keeping numbers as their original text, so a numeric id is not turned into
+// 1.234567e+06.
+func decodeObject(body []byte, out *map[string]any) error {
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.UseNumber()
+	return d.Decode(out)
 }
 
 // Authorized checks an HTTP basic-auth header in constant time.

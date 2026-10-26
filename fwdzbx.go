@@ -385,7 +385,7 @@ func ExportPerf(ctx context.Context, networkID, deviceName string, window time.D
 	hist.Name, hist.VendorOS = dev.Name, vos
 	ticks := perf.Build(hist)
 	if len(ticks) == 0 {
-		return PerfExport{}, fmt.Errorf("Zabbix host %q has no SNMP uptime history in the last %s: is an SNMP template linked and polling?", host, window)
+		return PerfExport{}, fmt.Errorf("Zabbix host %q has no SNMP history in the last %s: is an SNMP template linked and polling?", host, window)
 	}
 	res := PerfExport{Device: dev.Name, ZabbixHost: host, VendorOS: dev.OS, Ticks: len(ticks),
 		From: ticks[0].Time, To: ticks[len(ticks)-1].Time, HasCPU: len(hist.CPU) > 0, HasMemory: len(hist.Memory) > 0}

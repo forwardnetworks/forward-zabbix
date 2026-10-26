@@ -1,8 +1,8 @@
 # Usage
 
-All commands take `--network-id ID` (or `FORWARD_NETWORK_ID`) and `--json`. Commands that write take
+All commands except `serve` take `--network-id ID` (or `FORWARD_NETWORK_ID`) and `--json`, both before the command. Commands that write take
 `--apply`; without it they report what they would do. Exit codes: `0` ok, `1` a check you asked for failed
-(`coverage-gap --fail-on-gap`, or `push-status` when Zabbix rejected values), `64` configuration error (missing variable), anything else is an error.
+(`coverage-gap --fail-on-gap`, or `push-status` when Zabbix rejected values), `3` a runtime error, `64` configuration or usage error (missing variable, bad flag).
 
 | Command | Reads | Writes (with `--apply`) |
 |---|---|---|
@@ -12,6 +12,7 @@ All commands take `--network-id ID` (or `FORWARD_NETWORK_ID`) and `--json`. Comm
 | `export-status [-o FILE]` | Forward, Zabbix | nothing (a local CSV) |
 | `push-status` | Forward, Zabbix | Zabbix trapper values; creates the network host and `Forward` group if missing |
 | `enrich` | Forward, Zabbix | acknowledgement notes on open Forward problems |
+| `export-perf --device NAME -o FILE [--minutes N]` | Forward, Zabbix | nothing (a local PerfDataPB file; see [Performance data](performance.md)) |
 | `serve` | | Zabbix trapper values, on each webhook |
 
 ## coverage-gap

@@ -31,8 +31,8 @@ Look at a run with `journalctl -u fwdzbx-receiver`.
 The receiver listens on loopback. Put a TLS-terminating reverse proxy (or a tunnel) in front of it and
 forward `/forward-webhook` only.
 
-What was verified: the unit files pass `systemd-analyze verify` once `/opt/fwdzbx/bin/fwdzbx` exists, and the
-receiver was run as a systemd user service under the same sandbox properties (no new privileges,
+What was verified (on the earlier Python build; the Go units, which run `/usr/local/bin/fwdzbx`, have not been
+re-run): the receiver was run as a systemd user service under the same sandbox properties (no new privileges,
 read-only system, private tmp and devices, restricted address families), where it rejected unauthenticated
 calls and pushed status for a real event. The system-level units, the timers and the `DynamicUser` setting
 were not run end to end.
@@ -49,12 +49,12 @@ docker run -d --name fwdzbx --restart unless-stopped --env-file /etc/fwdzbx/fwdz
 The image runs as a non-root user. Run the timers' commands the same way, for example with cron:
 `docker run --rm --env-file /etc/fwdzbx/fwdzbx.env fwdzbx push-status --apply`.
 
-Verified: the image builds, runs as uid 10001, and under the flags above the receiver on a Docker network
-with Zabbix answered `401` without credentials and pushed status for a real event.
+The Go image builds, starts, and runs as uid 65532 (distroless `nonroot`). Serving a webhook from it has not been
+re-run; the earlier Python image, under the flags above, answered `401` without credentials and pushed status for a real event.
 In a container, `ZABBIX_URL` is the frontend as the container sees it, and `ZABBIX_SERVER` the server's
 name or address for the trapper port.
 
 ## Upgrades
 
-Re-install the package and `systemctl restart fwdzbx-receiver`. Re-import the Zabbix templates when
+Rebuild and re-install the binary, then `systemctl restart fwdzbx-receiver`. Re-import the Zabbix templates when
 `zabbix/forward-templates.yaml` changes; importing updates in place.

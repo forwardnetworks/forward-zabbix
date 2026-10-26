@@ -232,3 +232,10 @@ func TestTheDedupMemoryIsBounded(t *testing.T) {
 		t.Fatalf("seen grew to %d", len(r.seen))
 	}
 }
+
+func TestNumericIdsKeepTheirDigits(t *testing.T) {
+	e, err := ParseEvent([]byte(`{"type":"SNAPSHOT_READY","networkId":1234567,"snapshotId":98765432101}`))
+	if err != nil || e.NetworkID != "1234567" || e.SnapshotID != "98765432101" {
+		t.Fatalf("%+v %v", e, err)
+	}
+}

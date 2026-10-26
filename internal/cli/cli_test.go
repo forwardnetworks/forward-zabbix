@@ -172,3 +172,17 @@ func TestExportPerfNeedsADeviceAndAFileAndWritesOnlyThatFile(t *testing.T) {
 		t.Fatalf("exit %d err %v out %q", code, err, out)
 	}
 }
+
+func TestServeRejectsAFlagAfterSpaceSeparatedNetworkIds(t *testing.T) {
+	code, _, errb := run(&fake{}, map[string]string{"FWDZBX_WEBHOOK_USER": "u", "FWDZBX_WEBHOOK_PASSWORD": "p"},
+		"serve", "--network-ids", "1", "2", "--listen", "127.0.0.1:0")
+	if code != 64 || !strings.Contains(errb, "--listen") {
+		t.Fatalf("exit %d err %q", code, errb)
+	}
+}
+
+func TestExportPerfRejectsNonPositiveMinutes(t *testing.T) {
+	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "export-perf", "--device", "a", "-o", t.TempDir()+"/p", "--minutes", "0"); code != 64 {
+		t.Fatalf("exit %d", code)
+	}
+}

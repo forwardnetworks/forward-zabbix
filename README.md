@@ -40,6 +40,7 @@ event, before and after snapshots around a maintenance window, onboarding candid
 | `fwdzbx sync-inventory [--apply]` | Creates and updates Zabbix hosts from Forward devices, linking the `Forward Device` template. Dry run unless `--apply`. |
 | `fwdzbx push-status [--apply]` | Pushes Forward's per-device collection result and the newest snapshot's id and time to Zabbix trapper items. Zabbix then raises problems when Forward cannot collect a device, or when no new snapshot arrives. Dry run unless `--apply`. |
 | `fwdzbx export-status [-o FILE]` | CSV of what Zabbix says about each Forward device (has a Zabbix host, open problems, worst severity), for uploading to Forward as an NQE data file. Read-only. |
+| `fwdzbx export-perf --device NAME -o FILE` | Experimental. Builds a Forward performance payload (PerfDataPB) from Zabbix SNMP history; uploads nothing. See [Performance data](docs/performance.md). |
 | `fwdzbx serve` | Receives Forward's snapshot webhook and pushes status to Zabbix at once. |
 | `fwdzbx enrich [--apply]` | For each open Zabbix problem on a host this tool manages, adds an acknowledgement note with Forward's view of the device: identity, whether Forward collected it, and its directly connected neighbors with ports. Skips problems that already have a Forward note. Dry run unless `--apply`. |
 
@@ -90,7 +91,7 @@ output; `fwdzbx` is also a Go package (`fwdzbx.CoverageGap(ctx, networkID, fwdzb
 
 ## Run it
 
-Requires Go 1.24+ (or a release binary or Docker), Forward credentials (an API token's
+Requires Go 1.24+ (or Docker), Forward credentials (an API token's
 access key and secret), and a Zabbix 7.0 server. Tested against Zabbix 7.0.32.
 
 ```bash

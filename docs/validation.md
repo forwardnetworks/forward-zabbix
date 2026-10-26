@@ -29,7 +29,7 @@ Against a hosted Forward network of 26 devices, collected by a local collector, 
 - A real Forward **check-failure** webhook (`INTENT_VERIFICATION_FAILURE`, `NQE_VERIFICATION_FAILURE`). The
   receiver's handling is unit-tested from the documented payload shape only.
 - Check pass/fail counts as Zabbix metrics (not built).
-- The container image and systemd sandbox results above were measured on the Python build; the Go `Dockerfile` and units are not yet re-run.
+- The container image and systemd sandbox results above were measured on the Python build; the Go image was built and started (`--help`) but not run as a receiver, and the Go units are not yet re-run.
 - The system-level systemd units and timers, and `DynamicUser`; only the sandbox properties were run.
 - A Zabbix user with less than Super admin; Zabbix versions other than 7.0.
 - Frameworks such as Airflow; only plain Go and shell use are shown.

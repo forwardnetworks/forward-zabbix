@@ -21,7 +21,7 @@ notes, err := fwdzbx.Enrich(ctx, "123456", true, o)           // []Note
 - Configuration comes from the [environment](configuration.md). To pass it explicitly, fill `Options.Zabbix`
   and `Options.Forward`.
 - `apply` is an explicit argument: nothing changes Zabbix unless you pass `true`.
-- Failures are returned as errors; `config.ErrConfig` marks missing settings. Nothing is swallowed.
+- Failures are returned as errors; `fwdzbx.ErrConfig` marks missing settings. Nothing is swallowed.
 
 ## Use in a pipeline
 
