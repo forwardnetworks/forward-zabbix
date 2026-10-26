@@ -62,6 +62,15 @@ fwdzbx --network-id <id> upload-perf --device <name> --minutes 15 --apply   # se
   does not need to be enabled for an upload to be accepted; that is their reading of the code, not something this
   project has seen work yet.
 
+## Which devices get polled: the ones Forward knows
+
+Forward's inventory decides. `fwdzbx sync-inventory --performance --apply` (or `FWDZBX_PERFORMANCE=1`) creates a Zabbix
+host with an SNMP interface for every Forward device and links `Forward Performance by SNMP` to it, so Zabbix polls
+exactly the devices Forward models and a new Forward device is polled after the next sync. Without `--performance` the
+performance template is not linked. Import the template first; set the SNMP community once as a Zabbix global macro
+`{$SNMP_COMMUNITY}` (hosts reference the macro, never a value). Linking only adds; it never unlinks anything. Verified in a
+dry run against the lab (hosts already linked by hand showed no change); a first-time link through sync has not been run.
+
 ## On a schedule: `push-perf`
 
 `fwdzbx push-perf` is what runs every five minutes (Forward's own collector polls at that rate). One run sends every

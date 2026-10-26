@@ -218,3 +218,14 @@ func TestStatusRowsMatchByNameThenIPAndCountProblems(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+func TestExtraTemplatesAreLinkedAlongsideTheDeviceTemplate(t *testing.T) {
+	d := Device{Name: "r1", IPs: []string{"10.0.0.1"}}
+	got := PlanSync([]Device{d}, nil, "1", PerfTemplate)
+	if len(got.Create) != 1 || !got.Create[0].Templates[DeviceTemplate] || !got.Create[0].Templates[PerfTemplate] {
+		t.Fatalf("%+v", got.Create)
+	}
+	if plain := PlanSync([]Device{d}, nil, "1"); plain.Create[0].Templates[PerfTemplate] {
+		t.Fatal("the performance template must be opt-in")
+	}
+}

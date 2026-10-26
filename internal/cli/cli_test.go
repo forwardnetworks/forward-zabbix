@@ -25,7 +25,7 @@ type fake struct {
 
 func (f *fake) Devices(context.Context, string) ([]fwdzbx.Device, error) { return f.devices, f.err }
 func (f *fake) CoverageGap(context.Context, string) (fwdzbx.Gap, error)  { return f.gap, f.err }
-func (f *fake) SyncInventory(context.Context, string, bool) (fwdzbx.InventorySync, error) {
+func (f *fake) SyncInventory(context.Context, string, bool, bool) (fwdzbx.InventorySync, error) {
 	return f.sync, f.err
 }
 func (f *fake) PushStatus(context.Context, string, bool) (fwdzbx.StatusPush, error) {

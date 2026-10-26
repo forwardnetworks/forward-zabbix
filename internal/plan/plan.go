@@ -10,6 +10,7 @@ const (
 	ManagedBy         = "forward-zabbix"
 	RootGroup         = "Forward"
 	DeviceTemplate    = "Forward Device"
+	PerfTemplate      = "Forward Performance by SNMP"
 	NetworkTemplate   = "Forward Network"
 	NetworkHostPrefix = "forward-network-"
 	NotePrefix        = "[Forward]"
@@ -90,7 +91,8 @@ func sortTags(tags []Tag) {
 }
 
 // DesiredHost returns the host for a device, or nil when the device has no management IP.
-func DesiredHost(d Device, networkID string) *Desired {
+// extraTemplates are linked in addition to the device template (for example PerfTemplate).
+func DesiredHost(d Device, networkID string, extraTemplates ...string) *Desired {
 	if len(d.IPs) == 0 {
 		return nil
 	}
@@ -113,7 +115,7 @@ func DesiredHost(d Device, networkID string) *Desired {
 	}
 	sortTags(tags)
 	return &Desired{Host: TechnicalName(d.Name), Name: d.Name, IP: d.IPs[0], Groups: groups, Tags: tags,
-		Templates: set(DeviceTemplate)}
+		Templates: set(append([]string{DeviceTemplate}, extraTemplates...)...)}
 }
 
 // Update is one managed host that differs from what Forward implies.
@@ -151,12 +153,12 @@ func hostsByName(hosts []ZbxHost) (map[string]ZbxHost, map[string]ZbxHost) {
 }
 
 // PlanSync decides which Zabbix hosts to create or update for the devices.
-func PlanSync(devices []Device, hosts []ZbxHost, networkID string) SyncPlan {
+func PlanSync(devices []Device, hosts []ZbxHost, networkID string, extraTemplates ...string) SyncPlan {
 	var plan SyncPlan
 	byHost, byIP := hostsByName(hosts)
 	wanted := map[string]bool{}
 	for _, d := range devices {
-		want := DesiredHost(d, networkID)
+		want := DesiredHost(d, networkID, extraTemplates...)
 		if want == nil {
 			plan.SkippedNoIP = append(plan.SkippedNoIP, d.Name)
 			continue

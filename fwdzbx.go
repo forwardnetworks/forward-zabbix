@@ -39,8 +39,11 @@ var ErrConfig = config.ErrConfig
 
 // Options overrides the environment. The zero value reads everything from the environment.
 type Options struct {
-	Zabbix  *config.Zabbix
-	Forward *config.Forward
+	// Performance makes SyncInventory also link the "Forward Performance by SNMP" template to every host, so Zabbix
+	// polls exactly the devices Forward knows. The template must already be imported.
+	Performance bool
+	Zabbix      *config.Zabbix
+	Forward     *config.Forward
 	// Client, if set, is used for Forward instead of building one; the caller closes nothing (the SDK has no Close).
 	Client *sdk.Client
 }
@@ -128,7 +131,11 @@ func SyncInventory(ctx context.Context, networkID string, apply bool, o Options)
 	if err != nil {
 		return InventorySync{}, err
 	}
-	res := InventorySync{Plan: plan.PlanSync(devices, hosts, networkID)}
+	var extra []string
+	if o.Performance {
+		extra = append(extra, plan.PerfTemplate)
+	}
+	res := InventorySync{Plan: plan.PlanSync(devices, hosts, networkID, extra...)}
 	if apply {
 		a, err := z.ApplyPlan(ctx, res.Plan)
 		if err != nil {

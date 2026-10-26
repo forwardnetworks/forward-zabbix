@@ -38,7 +38,7 @@ const (
 type API interface {
 	Devices(ctx context.Context, networkID string) ([]fwdzbx.Device, error)
 	CoverageGap(ctx context.Context, networkID string) (fwdzbx.Gap, error)
-	SyncInventory(ctx context.Context, networkID string, apply bool) (fwdzbx.InventorySync, error)
+	SyncInventory(ctx context.Context, networkID string, apply, performance bool) (fwdzbx.InventorySync, error)
 	PushStatus(ctx context.Context, networkID string, apply bool) (fwdzbx.StatusPush, error)
 	SendValues(ctx context.Context, networkID string, values []fwdzbx.Value) (int, int, []string, error)
 	Enrich(ctx context.Context, networkID string, apply bool) ([]fwdzbx.Note, error)
@@ -57,8 +57,8 @@ func (Live) Devices(ctx context.Context, n string) ([]fwdzbx.Device, error) {
 func (Live) CoverageGap(ctx context.Context, n string) (fwdzbx.Gap, error) {
 	return fwdzbx.CoverageGap(ctx, n, fwdzbx.Options{})
 }
-func (Live) SyncInventory(ctx context.Context, n string, apply bool) (fwdzbx.InventorySync, error) {
-	return fwdzbx.SyncInventory(ctx, n, apply, fwdzbx.Options{})
+func (Live) SyncInventory(ctx context.Context, n string, apply, performance bool) (fwdzbx.InventorySync, error) {
+	return fwdzbx.SyncInventory(ctx, n, apply, fwdzbx.Options{Performance: performance})
 }
 func (Live) PushStatus(ctx context.Context, n string, apply bool) (fwdzbx.StatusPush, error) {
 	return fwdzbx.PushStatus(ctx, n, apply, fwdzbx.Options{})
@@ -131,7 +131,7 @@ Forward <-> Zabbix integration (PoC)
 commands:
   devices          list Forward devices (read-only)
   coverage-gap     diff Forward inventory against Zabbix hosts (read-only); --fail-on-gap
-  sync-inventory   create/update Zabbix hosts from Forward (dry run unless --apply)
+  sync-inventory   create/update Zabbix hosts from Forward (dry run unless --apply; --performance also links the SNMP performance template)
   push-status      push Forward collection health to Zabbix trapper items (dry run unless --apply)
   enrich           add Forward context to open Zabbix problems on managed hosts (dry run unless --apply)
   export-status    CSV of what Zabbix says about each Forward device (read-only); -o FILE
@@ -288,15 +288,18 @@ func applyFlag(name string, args []string) (bool, error) {
 }
 
 func (a *app) syncInventory(args []string) (int, error) {
-	apply, err := applyFlag("sync-inventory", args)
-	if err != nil {
-		return 0, err
+	var apply, performance bool
+	if _, err := sub("sync-inventory", args, func(fs *flag.FlagSet) {
+		fs.BoolVar(&apply, "apply", false, "")
+		fs.BoolVar(&performance, "performance", a.getenv("FWDZBX_PERFORMANCE") == "1", "")
+	}); err != nil {
+		return 0, usageErr(err)
 	}
 	net, err := a.network()
 	if err != nil {
 		return 0, err
 	}
-	res, err := a.api.SyncInventory(a.ctx, net, apply)
+	res, err := a.api.SyncInventory(a.ctx, net, apply, performance)
 	if err != nil {
 		return 0, err
 	}
