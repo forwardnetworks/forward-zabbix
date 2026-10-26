@@ -5,6 +5,8 @@ description = "Field integration between Forward Networks and Zabbix: inventory 
 authors = [
     { name = "craigjohnson", email = "craigjohnson@forwardnetworks.com" }
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "forward-sdk>=0.1.26",
