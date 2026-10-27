@@ -35,6 +35,9 @@ event, before and after snapshots around a maintenance window, onboarding candid
 | Direction | Flow | Command / component |
 |---|---|---|
 | Forward to Zabbix | Forward devices become Zabbix hosts, grouped and tagged by site, vendor, OS and type | `fwdzbx sync-inventory` |
+| Forward to Zabbix | A Zabbix service tree that mirrors Forward's topology, so one view shows what is wrong at a site or behind a device | `fwdzbx sync-services` ([Service tree](services.md)) |
+| Both | After a change window: what changed in Forward against what was meant to change, and the Zabbix problems in the window | `fwdzbx change-evidence` ([Change evidence](change-evidence.md)) |
+| Forward to Zabbix | Forward's links become trigger dependencies, so a failure above a device does not alarm every device below it | `fwdzbx sync-topology` ([Topology](topology.md)) |
 | Forward to Zabbix | Per-device collection result and newest snapshot become trapper items; Zabbix raises problems when Forward cannot collect a device, or when no new snapshot arrives | `fwdzbx push-status`, or the webhook receiver |
 | Forward to Zabbix | Failing intent and NQE checks reported by Forward's webhook become Zabbix problems | `fwdzbx serve` |
 | Both | Which devices Forward models that Zabbix does not monitor, which Zabbix hosts Forward does not model, and which match but differ | `fwdzbx coverage-gap` |

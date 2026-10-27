@@ -103,7 +103,7 @@ func DesiredHost(d Device, networkID string, extraTemplates ...string) *Desired 
 	if d.Vendor != "" {
 		groups[RootGroup+"/Vendors/"+d.Vendor] = true
 	}
-	tags := []Tag{{"managed-by", ManagedBy}, {"fwd-network", networkID}}
+	tags := []Tag{{"managed-by", ManagedBy}, {"fwd-network", networkID}, {"fwd-device", d.Name}}
 	for _, kv := range [][2]string{{"fwd-site", d.Site}, {"fwd-vendor", d.Vendor}, {"fwd-model", d.Model},
 		{"fwd-os", d.OS}, {"fwd-type", d.DeviceType}} {
 		if kv[1] != "" {

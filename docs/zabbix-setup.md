@@ -11,12 +11,12 @@ Two templates are created, in the template group `Templates/Network devices`:
 
 | Template | Linked to | Items | Triggers |
 |---|---|---|---|
-| **Forward Device** | every synced device host | `fwd.collection.result` (trapper, text) | "Forward could not collect {HOST.NAME}: ..." (Warning) |
+| **Forward Device** | every synced device host | `fwd.collection.result` (trapper, text); `zabbix[host,"snmp",available]` (internal) | "Forward could not collect {HOST.NAME}: ..." (Warning); "Forward: {HOST.NAME} is not answering SNMP" (High; the trigger `sync-topology` sets dependencies on) |
 | **Forward Network** | one carrier host per Forward network, `forward-network-<id>` | `fwd.devices.total`, `fwd.devices.collection_failed`, `fwd.snapshot.id`, `fwd.snapshot.time`, `fwd.check.failure` | collection failures present; no new snapshot within `{$FWD.SNAPSHOT.MAX_AGE}`; a check is failing |
 
 ![Triggers on the network host](images/zabbix-triggers.png)
 
-The templates carry no polling. The items are all **trapper** items: this project pushes values into them.
+The templates carry no polling. The items are **trapper** items, which this project pushes values into, plus one internal item that reads Zabbix's own SNMP availability for the host (it adds no polling of its own).
 
 ## What `sync-inventory --apply` creates
 
@@ -24,7 +24,7 @@ The templates carry no polling. The items are all **trapper** items: this projec
 
 - A host per Forward device, named after the device, with an SNMP interface on the first management IP.
 - Host groups `Forward`, `Forward/Sites/<site>`, `Forward/Vendors/<vendor>`.
-- Tags `managed-by: forward-zabbix`, `fwd-network`, `fwd-site`, `fwd-vendor`, `fwd-model`, `fwd-os`, `fwd-type`, plus one `fwd-tag` per Forward device tag. Host tags flow into problems,
+- Tags `managed-by: forward-zabbix`, `fwd-network`, `fwd-device` (the Forward device's name; problems carry it, which is how a Zabbix service finds one device's problems), `fwd-site`, `fwd-vendor`, `fwd-model`, `fwd-os`, `fwd-type`, plus one `fwd-tag` per Forward device tag. Host tags flow into problems,
   so you can route and filter on them.
 
 The network carrier host `forward-network-<id>` (bottom of the list above) is created by `push-status --apply` or the webhook receiver, not by `sync-inventory`.

@@ -24,6 +24,23 @@ Against a hosted Forward network of 26 devices, collected by a local collector, 
 - `export-status` output was uploaded to Forward as a data file, attached to one network, and after the next snapshot an NQE query joining it to `network.devices` returned all 26 devices with their Zabbix values.
 - The screenshots were produced from a clean Zabbix by the earlier Python `synthetic_demo` with made-up devices; `examples/synthetic_demo` is its Go port and has not been re-run.
 
+## Topology dependencies
+
+`sync-topology` was run against a live Forward network and a local Zabbix 7.0: the plan matched the network's shape,
+`--apply` set 22 dependencies, a second run changed nothing and a template re-import kept them. A controlled test with
+two pairs of scratch hosts, one pair with a dependency and one without, showed the dependent child staying quiet while its parent was in
+problem (see [Topology](topology.md#what-was-measured)). The dependency algorithm is unit-tested on chains, diamonds,
+rings, parallel links, disconnected devices, unmanaged parents and two vantages.
+
+## Change evidence
+
+`change-evidence` was run against a live Forward network and a local Zabbix 7.0, read-only: with two snapshot ids, and
+with a temporary Zabbix maintenance (which resolved the window, picked the snapshots on either side, and turned its host
+into the expected device). It reported a device that was expected to change and did not, the check results that moved,
+and a problem that opened and recovered inside the window; `--fail-on-diff` exited 1. The first version read only
+problems still open and missed the recovered one, found by comparing with a direct Zabbix query; it now reads events.
+The input rules, snapshot selection, the expectation judgement, the parsing of Forward's changed-device list and the Zabbix reads (maintenance, with host groups; events in the window) are unit-tested against fakes.
+
 ## Not verified
 
 - A real Forward **check-failure** webhook (`INTENT_VERIFICATION_FAILURE`, `NQE_VERIFICATION_FAILURE`). The
@@ -31,6 +48,8 @@ Against a hosted Forward network of 26 devices, collected by a local collector, 
 - Check pass/fail counts as Zabbix metrics (not built).
 - The container image and systemd sandbox results above were measured on the Python build; the Go image was built and started (`--help`) but not run as a receiver, and the Go units are not yet re-run.
 - The system-level systemd units and timers, and `DynamicUser`; only the sandbox properties were run.
+- `change-evidence` where devices really changed configuration: the test pair showed none, so the changed-device list was checked against a fake response and not against live changes.
+- `sync-topology` on networks larger than the 26-device test network, and a vantage move or a refused dependency against a real Zabbix (both are covered by unit tests with a fake Zabbix only).
 - A Zabbix user with less than Super admin; Zabbix versions other than 7.0.
 - Frameworks such as Airflow; only plain Go and shell use are shown.
 - Forward UI screenshots (none are shipped; see [Forward setup](forward-setup.md#screenshots)).

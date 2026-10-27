@@ -16,11 +16,15 @@ import (
 )
 
 type fake struct {
-	gap     fwdzbx.Gap
-	push    fwdzbx.StatusPush
-	sync    fwdzbx.InventorySync
-	err     error
-	devices []fwdzbx.Device
+	gap          fwdzbx.Gap
+	push         fwdzbx.StatusPush
+	sync         fwdzbx.InventorySync
+	err          error
+	devices      []fwdzbx.Device
+	topoFailures []string
+	evidence     fwdzbx.Evidence
+	evidenceReq  fwdzbx.EvidenceRequest
+	servicesFail []string
 }
 
 func (f *fake) Devices(context.Context, string) ([]fwdzbx.Device, error) { return f.devices, f.err }
@@ -28,6 +32,27 @@ func (f *fake) CoverageGap(context.Context, string) (fwdzbx.Gap, error)  { retur
 func (f *fake) SyncInventory(context.Context, string, bool, bool) (fwdzbx.InventorySync, error) {
 	return f.sync, f.err
 }
+func (f *fake) SyncTopology(_ context.Context, _ string, v []string, apply bool) (fwdzbx.TopologySync, error) {
+	r := fwdzbx.TopologySync{Plan: fwdzbx.TopologyPlan{Vantages: v}}
+	if apply {
+		r.Applied = &fwdzbx.AppliedTopology{Failures: f.topoFailures}
+	}
+	return r, f.err
+}
+
+func (f *fake) ChangeEvidence(_ context.Context, _ string, r fwdzbx.EvidenceRequest) (fwdzbx.Evidence, error) {
+	f.evidenceReq = r
+	return f.evidence, f.err
+}
+
+func (f *fake) SyncServices(_ context.Context, _ string, v []string, apply bool) (fwdzbx.ServicesSync, error) {
+	r := fwdzbx.ServicesSync{Plan: fwdzbx.ServicesPlan{Vantages: v}}
+	if apply {
+		r.Applied = &fwdzbx.AppliedServices{Failures: f.servicesFail}
+	}
+	return r, f.err
+}
+
 func (f *fake) PushStatus(context.Context, string, bool) (fwdzbx.StatusPush, error) {
 	return f.push, f.err
 }
@@ -221,5 +246,108 @@ func TestPushPerfIsADryRunUnlessApplied(t *testing.T) {
 	}
 	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "push-perf", "--minutes", "0"); code != 64 {
 		t.Fatalf("zero minutes: exit %d", code)
+	}
+}
+
+func TestSyncTopologyNeedsAVantage(t *testing.T) {
+	code, _, errb := run(&fake{}, nil, "--network-id", "1", "sync-topology")
+	if code != ExitUsage || !strings.Contains(errb, "--vantage") {
+		t.Fatalf("exit %d err %q, want a usage error that names --vantage", code, errb)
+	}
+}
+
+func TestSyncTopologyVantagesFromFlagsOrEnvAndPlainJSON(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env  map[string]string
+		args []string
+	}{
+		"repeated flag": {nil, []string{"--vantage", "r1", "--vantage", "r2"}},
+		"environment":   {map[string]string{"FWDZBX_VANTAGE": "r1, r2"}, nil},
+	} {
+		args := append([]string{"--network-id", "1", "--json", "sync-topology"}, tc.args...)
+		code, out, errb := run(&fake{}, tc.env, args...)
+		var got struct {
+			Plan struct {
+				Vantages  []string `json:"vantages"`
+				Change    []any    `json:"change"`
+				Unchanged []string `json:"unchanged"`
+				Skipped   any      `json:"skipped"`
+			} `json:"plan"`
+			Applied any `json:"applied"`
+		}
+		if code != 0 || errb != "" || json.Unmarshal([]byte(out), &got) != nil {
+			t.Fatalf("%s: exit %d out %q err %q", name, code, out, errb)
+		}
+		if strings.Join(got.Plan.Vantages, ",") != "r1,r2" || got.Plan.Change == nil || got.Plan.Unchanged == nil || got.Plan.Skipped == nil || got.Applied != nil {
+			t.Errorf("%s: got %+v; lists must be [] not null and a dry run has no applied", name, got)
+		}
+	}
+}
+
+func TestSyncTopologyExitsOneWhenZabbixRefusesADependency(t *testing.T) {
+	f := &fake{topoFailures: []string{"b: cycle"}}
+	if code, _, _ := run(f, nil, "--network-id", "1", "sync-topology", "--vantage", "a", "--apply"); code != ExitFailed {
+		t.Errorf("exit %d, want %d", code, ExitFailed)
+	}
+	if code, _, _ := run(&fake{}, nil, "--network-id", "1", "sync-topology", "--vantage", "a", "--apply"); code != 0 {
+		t.Errorf("clean apply: exit %d, want 0", code)
+	}
+}
+
+func TestChangeEvidenceFlagsReachTheRequestAndFailOnDiffSetsTheExitCode(t *testing.T) {
+	f := &fake{evidence: fwdzbx.Evidence{Config: plan.Judge([]string{"a", "c"}, []string{"a"})}}
+	code, out, _ := run(f, nil, "--network-id", "1", "change-evidence", "--maintenance", "win", "--since", "2026-01-01T10:00:00Z",
+		"--expect", "a", "--expect", "b", "--fail-on-diff")
+	if code != ExitFailed {
+		t.Errorf("a change that differs from what was expected must exit %d with --fail-on-diff, got %d", ExitFailed, code)
+	}
+	r := f.evidenceReq
+	if r.Maintenance != "win" || r.Since.IsZero() || strings.Join(r.Expect, ",") != "a,b" {
+		t.Errorf("request = %+v", r)
+	}
+	if !strings.Contains(out, "Changed but not expected") || !strings.Contains(out, "differs from expectation") {
+		t.Errorf("output must show the verdict and the unexpected change:\n%s", out)
+	}
+	if code, _, _ := run(f, nil, "--network-id", "1", "change-evidence", "--maintenance", "win"); code != 0 {
+		t.Errorf("without --fail-on-diff a differing change still exits 0, got %d", code)
+	}
+}
+
+func TestChangeEvidenceRejectsABadTimeAsAUsageError(t *testing.T) {
+	code, _, errb := run(&fake{}, nil, "--network-id", "1", "change-evidence", "--since", "yesterday", "--until", "2026-01-01T10:00:00Z")
+	if code != ExitUsage || !strings.Contains(errb, "--since") {
+		t.Errorf("exit %d err %q, want a usage error naming --since", code, errb)
+	}
+}
+
+func TestChangeEvidenceJSONIsPlain(t *testing.T) {
+	code, out, errb := run(&fake{}, nil, "--network-id", "1", "--json", "change-evidence", "--before", "1", "--after", "2")
+	var got map[string]any
+	if code != 0 || errb != "" || json.Unmarshal([]byte(out), &got) != nil || got["problems"] == nil {
+		t.Fatalf("exit %d out %q err %q", code, out, errb)
+	}
+}
+
+func TestSyncServicesNeedsAVantageAndEmitsPlainJSON(t *testing.T) {
+	if code, _, errb := run(&fake{}, nil, "--network-id", "1", "sync-services"); code != ExitUsage || !strings.Contains(errb, "--vantage") {
+		t.Fatalf("exit %d err %q, want a usage error naming --vantage", code, errb)
+	}
+	code, out, errb := run(&fake{}, map[string]string{"FWDZBX_VANTAGE": "r1"}, "--network-id", "1", "--json", "sync-services")
+	var got struct {
+		Plan struct {
+			Vantages []string `json:"vantages"`
+			Create   []any    `json:"create"`
+			Stale    []string `json:"stale"`
+		} `json:"plan"`
+		Applied any `json:"applied"`
+	}
+	if code != 0 || errb != "" || json.Unmarshal([]byte(out), &got) != nil || got.Plan.Create == nil || got.Plan.Stale == nil || got.Applied != nil || strings.Join(got.Plan.Vantages, ",") != "r1" {
+		t.Fatalf("exit %d out %q err %q got %+v", code, out, errb, got)
+	}
+}
+
+func TestSyncServicesExitsOneWhenZabbixRefusesAService(t *testing.T) {
+	if code, _, _ := run(&fake{servicesFail: []string{"x: refused"}}, nil, "--network-id", "1", "sync-services", "--vantage", "a", "--apply"); code != ExitFailed {
+		t.Errorf("exit %d, want %d", code, ExitFailed)
 	}
 }

@@ -40,6 +40,9 @@ type API interface {
 	CoverageGap(ctx context.Context, networkID string) (fwdzbx.Gap, error)
 	SyncInventory(ctx context.Context, networkID string, apply, performance bool) (fwdzbx.InventorySync, error)
 	PushStatus(ctx context.Context, networkID string, apply bool) (fwdzbx.StatusPush, error)
+	SyncTopology(ctx context.Context, networkID string, vantages []string, apply bool) (fwdzbx.TopologySync, error)
+	ChangeEvidence(ctx context.Context, networkID string, r fwdzbx.EvidenceRequest) (fwdzbx.Evidence, error)
+	SyncServices(ctx context.Context, networkID string, vantages []string, apply bool) (fwdzbx.ServicesSync, error)
 	SendValues(ctx context.Context, networkID string, values []fwdzbx.Value) (int, int, []string, error)
 	Enrich(ctx context.Context, networkID string, apply bool) ([]fwdzbx.Note, error)
 	ExportStatus(ctx context.Context, networkID string) ([]map[string]string, error)
@@ -59,6 +62,15 @@ func (Live) CoverageGap(ctx context.Context, n string) (fwdzbx.Gap, error) {
 }
 func (Live) SyncInventory(ctx context.Context, n string, apply, performance bool) (fwdzbx.InventorySync, error) {
 	return fwdzbx.SyncInventory(ctx, n, apply, fwdzbx.Options{Performance: performance})
+}
+func (Live) SyncTopology(ctx context.Context, n string, vantages []string, apply bool) (fwdzbx.TopologySync, error) {
+	return fwdzbx.SyncTopology(ctx, n, vantages, apply, fwdzbx.Options{})
+}
+func (Live) ChangeEvidence(ctx context.Context, n string, r fwdzbx.EvidenceRequest) (fwdzbx.Evidence, error) {
+	return fwdzbx.ChangeEvidence(ctx, n, r, fwdzbx.Options{})
+}
+func (Live) SyncServices(ctx context.Context, n string, vantages []string, apply bool) (fwdzbx.ServicesSync, error) {
+	return fwdzbx.SyncServices(ctx, n, vantages, apply, fwdzbx.Options{})
 }
 func (Live) PushStatus(ctx context.Context, n string, apply bool) (fwdzbx.StatusPush, error) {
 	return fwdzbx.PushStatus(ctx, n, apply, fwdzbx.Options{})
@@ -132,6 +144,9 @@ commands:
   devices          list Forward devices (read-only)
   coverage-gap     diff Forward inventory against Zabbix hosts (read-only); --fail-on-gap
   sync-inventory   create/update Zabbix hosts from Forward (dry run unless --apply; --performance also links the SNMP performance template)
+  sync-topology    set Zabbix trigger dependencies from Forward's links so a failure above a device does not alarm every device below it (dry run unless --apply; --vantage DEVICE, repeatable)
+  sync-services    build a Zabbix service tree that mirrors Forward's topology: each service's status is the worst problem on that device or behind it (dry run unless --apply; --vantage DEVICE, repeatable)
+  change-evidence  what a change did, from both tools: Forward's before/after snapshot diff judged against what was meant to change, plus the Zabbix problems in the window (read-only); --before/--after, --maintenance, or --since/--until; --expect DEVICE; --fail-on-diff
   push-status      push Forward collection health to Zabbix trapper items (dry run unless --apply)
   enrich           add Forward context to open Zabbix problems on managed hosts (dry run unless --apply)
   export-status    CSV of what Zabbix says about each Forward device (read-only); -o FILE
@@ -171,6 +186,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer, api API, 
 		code, err = a.coverageGap(cargs)
 	case "sync-inventory":
 		code, err = a.syncInventory(cargs)
+	case "sync-topology":
+		code, err = a.syncTopology(cargs)
+	case "sync-services":
+		code, err = a.syncServices(cargs)
+	case "change-evidence":
+		code, err = a.changeEvidence(cargs)
 	case "push-status":
 		code, err = a.pushStatus(cargs)
 	case "enrich":
@@ -330,6 +351,241 @@ func (a *app) syncInventory(args []string) (int, error) {
 		fmt.Fprintln(a.out, "\ndry run; pass --apply to make these changes")
 	}
 	return 0, nil
+}
+
+// stringList is a flag that can be given more than once.
+type stringList []string
+
+func (l *stringList) String() string     { return strings.Join(*l, ",") }
+func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
+
+func (a *app) syncTopology(args []string) (int, error) {
+	var apply bool
+	var vantages stringList
+	if _, err := sub("sync-topology", args, func(fs *flag.FlagSet) {
+		fs.BoolVar(&apply, "apply", false, "")
+		fs.Var(&vantages, "vantage", "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	vs, err := a.vantages(vantages)
+	if err != nil {
+		return 0, err
+	}
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	res, err := a.api.SyncTopology(a.ctx, net, vs, apply)
+	if err != nil {
+		return 0, err
+	}
+	code := 0
+	if res.Applied != nil && len(res.Applied.Failures) > 0 {
+		code = ExitFailed
+	}
+	if a.json {
+		return code, a.emit(res)
+	}
+	p := res.Plan
+	fmt.Fprintf(a.out, "change %d  unchanged %d  roots %d  unreachable %d  no-trigger %d  left %d\n",
+		len(p.Change), len(p.Unchanged), len(p.Roots), len(p.Unreachable), len(p.NoTrigger), len(p.Left))
+	var change, skipped []string
+	for _, c := range p.Change {
+		now := dash(c.Parent)
+		if c.Parent == "" {
+			now = "nothing"
+		}
+		was := "nothing"
+		if len(c.Was) > 0 {
+			was = strings.Join(c.Was, ", ")
+		}
+		name := c.Device
+		if name == "" {
+			name = c.Host + " (no Forward device)"
+		}
+		change = append(change, fmt.Sprintf("%s: depends on %s (was %s)", name, now, was))
+	}
+	for d, hops := range p.Skipped {
+		skipped = append(skipped, fmt.Sprintf("%s: skips %s (no managed Zabbix host)", d, strings.Join(hops, ", ")))
+	}
+	sort.Strings(skipped)
+	a.section("Would change", change)
+	a.section("Roots: nothing managed above them", p.Roots)
+	a.section("Unreachable from the vantage (no dependency set)", p.Unreachable)
+	a.section("Missing the reachability trigger (import and link the Forward Device template)", p.NoTrigger)
+	a.section("Left alone", p.Left)
+	a.section("Hops over unmanaged devices", skipped)
+	a.section("Vantage has no managed host", p.UnmanagedVantages)
+	if apply {
+		fmt.Fprintf(a.out, "\napplied: %d updated, %d failed\n", res.Applied.Updated, len(res.Applied.Failures))
+		a.section("Failures", res.Applied.Failures)
+	} else {
+		fmt.Fprintln(a.out, "\ndry run; pass --apply to make these changes")
+	}
+	return code, nil
+}
+
+// vantages reads the repeatable --vantage flag, falling back to FWDZBX_VANTAGE.
+func (a *app) vantages(list stringList) ([]string, error) {
+	if len(list) == 0 {
+		for _, v := range strings.Split(a.getenv("FWDZBX_VANTAGE"), ",") {
+			if v = strings.TrimSpace(v); v != "" {
+				list = append(list, v)
+			}
+		}
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("%w: pass --vantage DEVICE (the device Zabbix reaches the network through) or set FWDZBX_VANTAGE", config.ErrConfig)
+	}
+	return list, nil
+}
+
+func (a *app) syncServices(args []string) (int, error) {
+	var apply bool
+	var list stringList
+	if _, err := sub("sync-services", args, func(fs *flag.FlagSet) {
+		fs.BoolVar(&apply, "apply", false, "")
+		fs.Var(&list, "vantage", "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	vantages, err := a.vantages(list)
+	if err != nil {
+		return 0, err
+	}
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	res, err := a.api.SyncServices(a.ctx, net, vantages, apply)
+	if err != nil {
+		return 0, err
+	}
+	code := 0
+	if res.Applied != nil && len(res.Applied.Failures) > 0 {
+		code = ExitFailed
+	}
+	if a.json {
+		return code, a.emit(res)
+	}
+	p := res.Plan
+	fmt.Fprintf(a.out, "create %d  update %d  unchanged %d  skipped %d  unreachable %d  stale %d\n",
+		len(p.Create), len(p.Update), len(p.Unchanged), len(p.Skipped), len(p.Unreachable), len(p.Stale))
+	if len(p.Duplicates) > 0 {
+		fmt.Fprintf(a.out, "duplicates %d\n", len(p.Duplicates))
+	}
+	var create, update []string
+	for _, w := range p.Create {
+		create = append(create, w.Name)
+	}
+	for _, u := range p.Update {
+		update = append(update, u.Want.Name+": "+strings.Join(u.Changes, ", "))
+	}
+	a.section("Would create", create)
+	a.section("Would update", update)
+	a.section("Skipped", p.Skipped)
+	a.section("Unreachable from the vantage (shown directly under the network)", p.Unreachable)
+	a.section("Stale: this tool's services with no device (never deleted)", p.Stale)
+	a.section("Duplicates: two services for one device and kind, left alone", p.Duplicates)
+	if apply {
+		fmt.Fprintf(a.out, "\napplied: %d created, %d updated, %d failed\n", res.Applied.Created, res.Applied.Updated, len(res.Applied.Failures))
+		a.section("Failures", res.Applied.Failures)
+	} else {
+		fmt.Fprintln(a.out, "\ndry run; pass --apply to make these changes")
+	}
+	return code, nil
+}
+
+func (a *app) changeEvidence(args []string) (int, error) {
+	var r fwdzbx.EvidenceRequest
+	var expect stringList
+	var since, until string
+	var failOnDiff bool
+	if _, err := sub("change-evidence", args, func(fs *flag.FlagSet) {
+		fs.StringVar(&r.Before, "before", "", "")
+		fs.StringVar(&r.After, "after", "", "")
+		fs.StringVar(&r.Maintenance, "maintenance", "", "")
+		fs.StringVar(&since, "since", "", "")
+		fs.StringVar(&until, "until", "", "")
+		fs.Var(&expect, "expect", "")
+		fs.BoolVar(&failOnDiff, "fail-on-diff", false, "")
+	}); err != nil {
+		return 0, usageErr(err)
+	}
+	for _, t := range []struct {
+		name, val string
+		dst       *time.Time
+	}{{"--since", since, &r.Since}, {"--until", until, &r.Until}} {
+		if t.val == "" {
+			continue
+		}
+		v, err := time.Parse(time.RFC3339, t.val)
+		if err != nil {
+			return 0, usageErr(fmt.Errorf("%s wants a time like 2026-01-31T22:00:00Z: %v", t.name, err))
+		}
+		*t.dst = v
+	}
+	r.Expect = expect
+	net, err := a.network()
+	if err != nil {
+		return 0, err
+	}
+	ev, err := a.api.ChangeEvidence(a.ctx, net, r)
+	if err != nil {
+		return 0, err
+	}
+	code := 0
+	if failOnDiff && ev.Differs() {
+		code = ExitFailed
+	}
+	if a.json {
+		return code, a.emit(ev)
+	}
+	fmt.Fprintf(a.out, "before snapshot %s (%s)   after snapshot %s (%s)\n", ev.Before.ID, ev.Before.Time.UTC().Format(time.RFC3339), ev.After.ID, ev.After.Time.UTC().Format(time.RFC3339))
+	if ev.Maintenance != "" {
+		fmt.Fprintf(a.out, "maintenance %q\n", ev.Maintenance)
+	}
+	fmt.Fprintf(a.out, "window %s to %s\n", ev.From.UTC().Format(time.RFC3339), ev.To.UTC().Format(time.RFC3339))
+	fmt.Fprintf(a.out, "\nconfiguration: %s (%d changed, %d expected)\n", ev.Config.Verdict, len(ev.Config.Changed), len(ev.Config.Expected))
+	a.section("Changed", ev.Config.Changed)
+	a.section("Changed but not expected", ev.Config.Unexpected)
+	a.section("Expected to change but did not", ev.Config.Missing)
+	a.section("Other Forward changes between the snapshots", countLines(ev.Material))
+	a.section("File types that changed (devices)", countLines(ev.MaterialFor))
+	a.section("Check results that changed", countLines(ev.Checks))
+	a.section("Counted as at least this many", ev.Incomplete)
+	var errs []string
+	for k, v := range ev.Errors {
+		errs = append(errs, k+": "+v)
+	}
+	sort.Strings(errs)
+	a.section("Forward could not compute", errs)
+	var probs []string
+	for _, p := range ev.Problems {
+		state := ""
+		if p.Resolved {
+			state += " (recovered)"
+		}
+		if p.Suppressed {
+			state += " (suppressed)"
+		}
+		probs = append(probs, fmt.Sprintf("%s  %s: %s%s", p.Opened.Format("2006-01-02 15:04:05"), p.Host, p.Name, state))
+	}
+	a.section("Zabbix problems opened in the window", probs)
+	for _, n := range ev.Notes {
+		fmt.Fprintf(a.out, "\nnote: %s\n", n)
+	}
+	return code, nil
+}
+
+func countLines(m map[string]int64) []string {
+	var out []string
+	for k, v := range m {
+		out = append(out, fmt.Sprintf("%s: %d", k, v))
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (a *app) pushStatus(args []string) (int, error) {

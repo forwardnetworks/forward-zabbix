@@ -24,14 +24,20 @@ import (
 
 // Types returned by the API, re-exported so callers can name them.
 type (
-	Device     = plan.Device
-	Link       = plan.Link
-	SyncPlan   = plan.SyncPlan
-	Gap        = plan.Gap
-	Value      = plan.Value
-	Applied    = zabbix.Applied
-	ZabbixCfg  = config.Zabbix
-	ForwardCfg = config.Forward
+	Device          = plan.Device
+	Link            = plan.Link
+	SyncPlan        = plan.SyncPlan
+	Gap             = plan.Gap
+	Value           = plan.Value
+	Applied         = zabbix.Applied
+	TopologyPlan    = plan.TopologyPlan
+	Judgement       = plan.Judgement
+	ServicesPlan    = plan.ServicesPlan
+	AppliedServices = zabbix.AppliedServices
+	WindowProblem   = zabbix.WindowProblem
+	AppliedTopology = zabbix.AppliedTopology
+	ZabbixCfg       = config.Zabbix
+	ForwardCfg      = config.Forward
 )
 
 // ErrConfig is wrapped by every missing or invalid setting.
@@ -138,6 +144,115 @@ func SyncInventory(ctx context.Context, networkID string, apply bool, o Options)
 	res := InventorySync{Plan: plan.PlanSync(devices, hosts, networkID, extra...)}
 	if apply {
 		a, err := z.ApplyPlan(ctx, res.Plan)
+		if err != nil {
+			return res, err
+		}
+		res.Applied = &a
+	}
+	return res, nil
+}
+
+// TopologySync is the plan for setting trigger dependencies from Forward's topology and, when applied, what was done.
+type TopologySync struct {
+	Plan    TopologyPlan
+	Applied *AppliedTopology // nil on a dry run
+}
+
+func (s TopologySync) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"plan": s.Plan.Normalized(), "applied": s.Applied})
+}
+
+// SyncTopology plans, and with apply sets, the dependencies between managed hosts' reachability triggers so a
+// failure above a device does not raise an alarm for every device below it. vantages are the Forward devices Zabbix
+// reaches the network through. It changes only dependencies on this tool's own triggers.
+func SyncTopology(ctx context.Context, networkID string, vantages []string, apply bool, o Options) (TopologySync, error) {
+	c, err := o.forwardClient()
+	if err != nil {
+		return TopologySync{}, err
+	}
+	devices, err := forward.Devices(ctx, c, networkID)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	links, err := forward.Links(ctx, c, networkID)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	z, err := o.connect(ctx)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	defer z.Close(ctx)
+	hosts, err := z.ListHosts(ctx)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	triggers, err := z.ReachabilityTriggers(ctx)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	p, err := plan.PlanTopology(devices, links, hosts, triggers, networkID, vantages)
+	if err != nil {
+		return TopologySync{}, err
+	}
+	res := TopologySync{Plan: p}
+	if apply {
+		a, err := z.ApplyTopology(ctx, p)
+		if err != nil {
+			return res, err
+		}
+		res.Applied = &a
+	}
+	return res, nil
+}
+
+// ServicesSync is the plan for the Zabbix service tree and, when applied, what was done.
+type ServicesSync struct {
+	Plan    ServicesPlan
+	Applied *AppliedServices // nil on a dry run
+}
+
+func (s ServicesSync) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"plan": s.Plan.Normalized(), "applied": s.Applied})
+}
+
+// SyncServices plans, and with apply creates and updates, a Zabbix service tree that mirrors Forward's topology: one
+// service for the network, and for each device a container under the device it sits behind plus a leaf with the
+// device's own problems. A service's status is the worst problem on that device or anything behind it. It never
+// deletes. Hosts need the fwd-device tag that sync-inventory adds.
+func SyncServices(ctx context.Context, networkID string, vantages []string, apply bool, o Options) (ServicesSync, error) {
+	c, err := o.forwardClient()
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	devices, err := forward.Devices(ctx, c, networkID)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	links, err := forward.Links(ctx, c, networkID)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	z, err := o.connect(ctx)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	defer z.Close(ctx)
+	hosts, err := z.ListHosts(ctx)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	existing, err := z.ListServices(ctx, networkID)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	p, err := plan.PlanServices(devices, links, hosts, existing, networkID, vantages)
+	if err != nil {
+		return ServicesSync{}, err
+	}
+	res := ServicesSync{Plan: p}
+	if apply {
+		a, err := z.ApplyServices(ctx, p)
 		if err != nil {
 			return res, err
 		}

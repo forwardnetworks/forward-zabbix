@@ -38,6 +38,9 @@ event, before and after snapshots around a maintenance window, onboarding candid
 | `fwdzbx devices` | Lists the devices Forward holds for a network (read-only). |
 | `fwdzbx coverage-gap` | Diffs Forward's inventory against Zabbix hosts: devices Forward knows that Zabbix does not monitor, hosts Zabbix has that Forward does not model, and matches that differ (IP, or the same device under another name). |
 | `fwdzbx sync-inventory [--apply]` | Creates and updates Zabbix hosts from Forward devices, linking the `Forward Device` template. Dry run unless `--apply`. |
+| `fwdzbx sync-topology --vantage DEVICE [--apply]` | Sets Zabbix trigger dependencies from Forward's links, so a failure above a device does not alarm every device below it. Dry run unless `--apply`. See [Topology](docs/topology.md). |
+| `fwdzbx sync-services --vantage DEVICE [--apply]` | Builds a Zabbix service tree that mirrors Forward's topology; each service's status is the worst problem on that device or behind it. Dry run unless `--apply`. See [Service tree](docs/services.md). |
+| `fwdzbx change-evidence` | After a change window: Forward's before/after snapshot diff judged against the devices that were meant to change, plus the Zabbix problems in the window. Read-only. See [Change evidence](docs/change-evidence.md). |
 | `fwdzbx push-status [--apply]` | Pushes Forward's per-device collection result and the newest snapshot's id and time to Zabbix trapper items. Zabbix then raises problems when Forward cannot collect a device, or when no new snapshot arrives. Dry run unless `--apply`. |
 | `fwdzbx export-status [-o FILE]` | CSV of what Zabbix says about each Forward device (has a Zabbix host, open problems, worst severity), for uploading to Forward as an NQE data file. Read-only. |
 | `fwdzbx export-perf --device NAME -o FILE` | Experimental. Builds a Forward performance payload (PerfDataPB) from Zabbix SNMP history; uploads nothing. See [Performance data](docs/performance.md). |
@@ -85,7 +88,7 @@ to Zabbix. See [Architecture](docs/architecture.md).
 [Overview](docs/index.md) | [Install](docs/install.md) | [Configuration](docs/configuration.md) |
 [Zabbix setup](docs/zabbix-setup.md) | [Forward setup](docs/forward-setup.md) | [Usage](docs/usage.md) |
 [Run as a service](docs/service.md) | [Go API and pipelines](docs/go-api.md) |
-[Performance data](docs/performance.md) | [Troubleshooting](docs/troubleshooting.md) | [Validation](docs/validation.md)
+[Performance data](docs/performance.md) | [Topology](docs/topology.md) | [Service tree](docs/services.md) | [Change evidence](docs/change-evidence.md) | [Troubleshooting](docs/troubleshooting.md) | [Validation](docs/validation.md)
 
 Also: `fwdzbx serve` receives Forward's snapshot webhook; `--json` on every command gives machine-readable
 output; `fwdzbx` is also a Go package (`fwdzbx.CoverageGap(ctx, networkID, fwdzbx.Options{})`).

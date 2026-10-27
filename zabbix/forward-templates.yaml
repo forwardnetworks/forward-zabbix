@@ -9,7 +9,8 @@ zabbix_export:
       name: Forward Device
       description: |
         Values pushed by fwdzbx for a device that Forward models. Items are trapper items:
-        nothing here polls the device. Link this template to hosts created by `fwdzbx sync-inventory`.
+        nothing here polls the device, apart from one internal item that reads Zabbix's own SNMP
+        availability for the host. Link this template to hosts created by `fwdzbx sync-inventory`.
       groups:
         - name: Templates/Network devices
       items:
@@ -33,6 +34,26 @@ zabbix_export:
               tags:
                 - tag: scope
                   value: availability
+        - uuid: 73a46b033a7647179acd619a6204ed44
+          name: 'Forward: SNMP availability'
+          type: INTERNAL
+          key: 'zabbix[host,"snmp",available]'
+          delay: 1m
+          history: 7d
+          trends: '0'
+          description: 'Zabbix''s own view of whether this host answers SNMP (0 not available, 1 available, 2 unknown). Read from the interface Zabbix already polls; it adds no polling of its own.'
+          tags: [{tag: component, value: forward}]
+          triggers:
+            - uuid: 3113402e3c2f4db998c3c58f6f1ca6c5
+              expression: 'max(/Forward Device/zabbix[host,"snmp",available],5m)=0'
+              name: 'Forward: {HOST.NAME} is not answering SNMP'
+              priority: HIGH
+              description: 'Zabbix cannot reach this device over SNMP. `fwdzbx sync-topology` makes this trigger depend on its upstream device''s, so a failure above does not raise one of these for every device below it.'
+              tags:
+                - tag: scope
+                  value: availability
+                - tag: fwd-role
+                  value: reachability
     - uuid: 7c31c832b0b8432d9cd3cbb309b2518f
       template: Forward Network
       name: Forward Network

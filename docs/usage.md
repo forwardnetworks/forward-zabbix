@@ -2,13 +2,16 @@
 
 All commands except `serve` take `--network-id ID` (or `FORWARD_NETWORK_ID`) and `--json`, both before the command. Commands that write take
 `--apply`; without it they report what they would do. Exit codes: `0` ok, `1` a check you asked for failed
-(`coverage-gap --fail-on-gap`, or `push-status` when Zabbix rejected values), `3` a runtime error, `64` configuration or usage error (missing variable, bad flag).
+(`coverage-gap --fail-on-gap`, `push-status` when Zabbix rejected values, `sync-topology --apply` when Zabbix refused a dependency, `sync-services --apply` when it refused a service, or `change-evidence --fail-on-diff` when the change did not match what was expected), `3` a runtime error, `64` configuration or usage error (missing variable, bad flag).
 
 | Command | Reads | Writes (with `--apply`) |
 |---|---|---|
 | `devices` | Forward | nothing |
 | `coverage-gap [--fail-on-gap]` | Forward, Zabbix | nothing |
 | `sync-inventory` | Forward, Zabbix | Zabbix hosts, groups, tags, template links |
+| `change-evidence` | Forward, Zabbix | nothing; see [Change evidence](change-evidence.md) |
+| `sync-services --vantage DEVICE` | Forward, Zabbix | a service tree in Zabbix; see [Service tree](services.md) |
+| `sync-topology --vantage DEVICE` | Forward, Zabbix | trigger dependencies between managed hosts; see [Topology](topology.md) |
 | `export-status [-o FILE]` | Forward, Zabbix | nothing (a local CSV) |
 | `push-status` | Forward, Zabbix | Zabbix trapper values; creates the network host and `Forward` group if missing |
 | `enrich` | Forward, Zabbix | acknowledgement notes on open Forward problems |
@@ -42,6 +45,25 @@ and updates hosts. It is idempotent: a second run reports everything unchanged.
 - A managed host with no matching device is *stale*: reported, never deleted.
 - Template changes only add; a template you linked by hand stays.
 - A device with no management IP is reported as `no-ip` and skipped.
+
+## sync-topology
+
+Sets Zabbix trigger dependencies from Forward's links, so devices behind a failed one do not each raise an alarm.
+Dry run unless `--apply`; idempotent. `--vantage` is required (repeatable, or `FWDZBX_VANTAGE`). It changes only
+dependencies on this tool's own reachability trigger, on hosts this tool manages. See [Topology](topology.md).
+
+## sync-services
+
+Builds a Zabbix service tree from Forward's links: a root, and per device a container plus a leaf with its problems. Dry run
+unless `--apply`; idempotent; never deletes. `--vantage` is required (repeatable, or `FWDZBX_VANTAGE`). Needs the
+`fwd-device` host tag that `sync-inventory --apply` adds. See [Service tree](services.md).
+
+## change-evidence
+
+Read-only. Judges what changed between two Forward snapshots against the devices that were meant to change, and lists the
+Zabbix problems that opened in the window. Name the change with `--before/--after`, `--maintenance NAME`, or
+`--since/--until` (RFC 3339); `--expect DEVICE` is repeatable; `--fail-on-diff` exits 1 when the change did not match what
+was expected. See [Change evidence](change-evidence.md).
 
 ## export-status
 

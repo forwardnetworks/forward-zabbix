@@ -229,3 +229,39 @@ func TestExtraTemplatesAreLinkedAlongsideTheDeviceTemplate(t *testing.T) {
 		t.Fatal("the performance template must be opt-in")
 	}
 }
+
+func TestJudgeComparesWhatChangedWithWhatWasMeantToChange(t *testing.T) {
+	cases := []struct {
+		name                string
+		changed, expected   []string
+		unexpected, missing []string
+		verdict             string
+	}{
+		{"exactly what was meant", []string{"A", "b"}, []string{"a", "B"}, nil, nil, VerdictAsExpected},
+		{"something else changed too", []string{"a", "c"}, []string{"a"}, []string{"c"}, nil, VerdictDiffers},
+		{"what was meant did not change", []string{"a"}, []string{"a", "b"}, nil, []string{"b"}, VerdictDiffers},
+		{"nothing changed, nothing expected", nil, nil, nil, nil, VerdictNoExpectation},
+		{"changes but no expectation to judge them by", []string{"a"}, nil, nil, nil, VerdictNoExpectation},
+		{"nothing changed but something was meant to", nil, []string{"a"}, nil, []string{"a"}, VerdictDiffers},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			j := Judge(c.changed, c.expected)
+			if j.Verdict != c.verdict || strings.Join(j.Unexpected, ",") != strings.Join(c.unexpected, ",") || strings.Join(j.Missing, ",") != strings.Join(c.missing, ",") {
+				t.Errorf("got %+v, want unexpected %v missing %v verdict %q", j, c.unexpected, c.missing, c.verdict)
+			}
+			if j.Unexpected == nil || j.Missing == nil || j.Changed == nil || j.Expected == nil {
+				t.Errorf("lists must be empty, not nil, for stable JSON: %+v", j)
+			}
+		})
+	}
+}
+
+// Problems inherit a host's tags, so the device name has to be one of them for a service to find one device's problems.
+func TestDesiredHostCarriesTheDeviceNameAsATag(t *testing.T) {
+	w := DesiredHost(Device{Name: "core-1", IPs: []string{"10.0.0.1"}}, "7")
+	got := ZbxHost{Tags: w.Tags}.TagMap()["fwd-device"]
+	if got != "core-1" {
+		t.Errorf("fwd-device = %q, want core-1 (tags %v)", got, w.Tags)
+	}
+}

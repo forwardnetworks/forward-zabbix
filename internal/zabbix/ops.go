@@ -296,6 +296,12 @@ type problemRow struct {
 }
 
 func (c *Client) triggerHosts(ctx context.Context, rows []problemRow) (map[string]string, error) {
+	return c.triggerHostsWhere(ctx, rows, true)
+}
+
+// triggerHostsWhere maps trigger ids to host names; monitoredOnly leaves out triggers on disabled hosts or that are
+// disabled themselves.
+func (c *Client) triggerHostsWhere(ctx context.Context, rows []problemRow, monitoredOnly bool) (map[string]string, error) {
 	ids := make([]string, len(rows))
 	for i, r := range rows {
 		ids[i] = r.ObjectID
@@ -304,8 +310,11 @@ func (c *Client) triggerHosts(ctx context.Context, rows []problemRow) (map[strin
 		TriggerID string                  `json:"triggerid"`
 		Hosts     []struct{ Host string } `json:"hosts"`
 	}
-	if err := c.Call(ctx, "trigger.get", map[string]any{"output": []string{"triggerid"}, "triggerids": ids,
-		"selectHosts": []string{"host"}, "monitored": true}, &trig); err != nil {
+	params := map[string]any{"output": []string{"triggerid"}, "triggerids": ids, "selectHosts": []string{"host"}}
+	if monitoredOnly {
+		params["monitored"] = true
+	}
+	if err := c.Call(ctx, "trigger.get", params, &trig); err != nil {
 		return nil, err
 	}
 	hostOf := map[string]string{}

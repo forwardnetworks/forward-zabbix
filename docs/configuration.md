@@ -36,6 +36,7 @@ are pushed to the **server's trapper port**, not the web frontend.
 |---|---|---|
 | `FWDZBX_WEBHOOK_USER` | yes | Basic-auth user Forward must send |
 | `FWDZBX_WEBHOOK_PASSWORD` | yes | Basic-auth password. The receiver refuses to start without both |
+| `FWDZBX_VANTAGE` / `--vantage` | for `sync-topology` and `sync-services` | The Forward device(s) Zabbix reaches the network through; comma-separated in the variable, the flag is repeatable. See [Topology](topology.md) |
 | `FWDZBX_NETWORK_IDS` / `--network-ids` | yes | Forward network ids to act on, comma-separated in the variable; the flag takes comma-separated ids, or space-separated ids placed after all other flags. Events for any other network are acknowledged and ignored |
 | `--listen HOST:PORT` | no | Default `127.0.0.1:8020` |
 | `--path PATH` | no | Default `/forward-webhook`. Any other path returns 404 |

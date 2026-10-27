@@ -14,6 +14,9 @@ gap, err := fwdzbx.CoverageGap(ctx, "123456", o)              // Unmonitored, Un
 sync, err := fwdzbx.SyncInventory(ctx, "123456", false, o)    // dry run: sync.Plan
 sync, err = fwdzbx.SyncInventory(ctx, "123456", true, o)      // sync.Applied: created and updated counts
 push, err := fwdzbx.PushStatus(ctx, "123456", true, o)        // processed / rejected / skipped hosts
+topo, err := fwdzbx.SyncTopology(ctx, "123456", []string{"core-1"}, false, o) // dry run: topo.Plan; true applies, topo.Applied
+ev, err := fwdzbx.ChangeEvidence(ctx, "123456", fwdzbx.EvidenceRequest{Maintenance: "Core upgrade"}, o) // ev.Config.Verdict, ev.Problems
+svc, err := fwdzbx.SyncServices(ctx, "123456", []string{"core-1"}, false, o) // dry run: svc.Plan; true applies, svc.Applied
 rows, err := fwdzbx.ExportStatus(ctx, "123456", o)            // []map[string]string
 notes, err := fwdzbx.Enrich(ctx, "123456", true, o)           // []Note
 ```
